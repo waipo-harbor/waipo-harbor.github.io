@@ -289,12 +289,41 @@ function clearAllChatCache() {
             console.log('已删除 sessionStorage:', key);
         });
         
+        // 清除 IndexedDB 中所有 coze/chat 相关的数据库
+        if (window.indexedDB && window.indexedDB.databases) {
+            window.indexedDB.databases().then(function(databases) {
+                databases.forEach(function(db) {
+                    if (db.name && (
+                        db.name.indexOf('coze') !== -1 || 
+                        db.name.indexOf('chat') !== -1 ||
+                        db.name.indexOf('webchat') !== -1 ||
+                        db.name.indexOf('sdk') !== -1
+                    )) {
+                        window.indexedDB.deleteDatabase(db.name);
+                        console.log('已删除 IndexedDB:', db.name);
+                    }
+                });
+            }).catch(function(e) {
+                console.log('IndexedDB 清除出错:', e);
+            });
+        }
+        
         // 清除 cookies
         document.cookie.split(";").forEach(function(c) {
             if (c.indexOf('coze') !== -1 || c.indexOf('chat') !== -1) {
                 document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
             }
         });
+        
+        // 注销 Service Worker
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                registrations.forEach(function(reg) {
+                    reg.unregister();
+                    console.log('已注销 Service Worker:', reg.scope);
+                });
+            }).catch(function(e) {});
+        }
         
         console.log('缓存清除完成');
     } catch(e) {
@@ -333,12 +362,17 @@ function loadSDK(callback) {
     document.head.appendChild(script);
 }
 
-// 初始化聊天（每次都创建全新实例）
+// 初始化聊天（每次都创建全新实例并清除历史）
 function initChat() {
     try {
         // 如果已有实例，尝试销毁
         if (cozeWebSDK) {
             try {
+                // 先清除聊天历史
+                if (typeof cozeWebSDK.clearChatHistory === 'function') {
+                    cozeWebSDK.clearChatHistory();
+                    console.log('已清除聊天历史');
+                }
                 if (typeof cozeWebSDK.destroy === 'function') {
                     cozeWebSDK.destroy();
                 } else if (typeof cozeWebSDK.close === 'function') {
@@ -387,6 +421,18 @@ function initChat() {
                     isNeedFunctionCallMessage: true,
                     onShow: function() {
                         document.getElementById('loadingOverlay').style.display = 'none';
+                        // 显示后立即创建新对话
+                        setTimeout(function() {
+                            if (cozeWebSDK) {
+                                if (typeof cozeWebSDK.newConversation === 'function') {
+                                    cozeWebSDK.newConversation();
+                                    console.log('已创建新对话');
+                                } else if (typeof cozeWebSDK.clearChatHistory === 'function') {
+                                    cozeWebSDK.clearChatHistory();
+                                    console.log('已清除聊天历史');
+                                }
+                            }
+                        }, 500);
                     },
                     onHide: function() {
                         document.getElementById('chatContainer').classList.remove('chat-open');
