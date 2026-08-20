@@ -116,6 +116,14 @@ body{
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 .close-btn:hover { background: #824fb8; }
+/* 隐藏 Chat SDK 自动渲染的视频播放器 */
+video, iframe[src*="video"], iframe[src*="player"],
+[class*="video"], [class*="Video"], [data-type="video"],
+.coze-video, .chat-video-player {
+    display: none !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+}
 .loading-overlay {
     display: none;
     position: fixed;
