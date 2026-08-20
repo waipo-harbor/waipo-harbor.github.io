@@ -283,8 +283,31 @@ function clearAllChatCache() {
     } catch(e) {}
 }
 
-// 页面加载时立即清除缓存
-clearAllChatCache();
+// 页面加载时立即清除缓存（最早执行）
+(function() {
+    // 强制清除所有 coze/chat 相关的 localStorage
+    for (var i = localStorage.length - 1; i >= 0; i--) {
+        var key = localStorage.key(i);
+        if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
+            localStorage.removeItem(key);
+        }
+    }
+    // 强制清除所有 coze/chat 相关的 sessionStorage
+    for (var i = sessionStorage.length - 1; i >= 0; i--) {
+        var key = sessionStorage.key(i);
+        if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
+            sessionStorage.removeItem(key);
+        }
+    }
+    // 清除所有 IndexedDB 数据库
+    if (window.indexedDB && window.indexedDB.databases) {
+        window.indexedDB.databases().then(function(dbs) {
+            dbs.forEach(function(db) {
+                if (db.name) indexedDB.deleteDatabase(db.name);
+            });
+        }).catch(function(){});
+    }
+})();
 
 // 显示错误信息
 function showError(title, detail) {
@@ -314,39 +337,29 @@ function loadSDK(callback) {
     document.head.appendChild(script);
 }
 
-// SDK 初始化完成后，清除对话历史存储
-function clearSDKChatHistory() {
-    try {
-        // 清除 Chat SDK 专用的 localStorage keys
-        var targetKeys = [
-            'coze-chat-history', 'coze-chat-data', 'coze-msg-data',
-            'coze-conversation', 'coze-messages', 'coze-history',
-            'coze-storage', 'coze-cache', 'coze-session'
-        ];
-        for (var i = 0; i < localStorage.length; i++) {
-            var key = localStorage.key(i);
-            if (key && (
-                key.indexOf('coze') !== -1 || 
-                key.indexOf('chat') !== -1 || 
-                key.indexOf('webchat') !== -1
-            )) {
-                localStorage.removeItem(key);
-                console.log('已删除:', key);
-            }
-        }
-        // 清除 sessionStorage
-        for (var i = sessionStorage.length - 1; i >= 0; i--) {
-            var key = sessionStorage.key(i);
-            if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
-                sessionStorage.removeItem(key);
-            }
-        }
-        console.log('SDK 对话历史存储已清除');
-    } catch(e) { console.log('清除出错:', e); }
+// 通过 Coze API 创建新会话，返回 conversation_id
+function createNewConversation() {
+    return fetch('https://api.coze.cn/v1/conversation/create', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer pat_ijcyjbaT6lOVV92tApQrNccNVgzVnRdpg1g2bl4RHlAAZnFbNkbwrjEg88qtl5JV',
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            bot_id: '7673548882957516835'
+        })
+    }).then(function(res) { return res.json(); })
+      .then(function(data) {
+          if (data.code === 0 && data.data && data.data.id) {
+              console.log('新会话 ID:', data.data.id);
+              return data.data.id;
+          }
+          throw new Error('API 创建会话失败: ' + JSON.stringify(data));
+      });
 }
 
 // 初始化聊天（每次都创建全新实例并清除历史）
-function initChat() {
+function initChat(conversationId) {
     try {
         // 如果已有实例，先清除历史再销毁
         if (cozeWebSDK) {
@@ -365,7 +378,7 @@ function initChat() {
         
         // 生成完全随机的用户 ID，确保全新会话
         var randomUserId = 'u_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        console.log('新用户ID:', randomUserId);
+        console.log('新用户ID:', randomUserId, '会话ID:', conversationId);
         
         // 创建全新实例
         cozeWebSDK = new CozeWebSDK.WebChatClient({
@@ -398,21 +411,18 @@ function initChat() {
                     el: document.getElementById('chatContainer'),
                     isNeedAudio: true,
                     isNeedFunctionCallMessage: true,
+                    conversation_id: conversationId,
                     onShow: function() {
                         document.getElementById('loadingOverlay').style.display = 'none';
                         // 对话显示后，清除 SDK 的对话历史存储
                         setTimeout(function() {
                             clearSDKChatHistory();
-                            // 尝试调用 SDK API 创建新对话
                             if (cozeWebSDK) {
                                 try {
                                     if (typeof cozeWebSDK.clearChatHistory === 'function') {
                                         cozeWebSDK.clearChatHistory();
                                     }
-                                    if (typeof cozeWebSDK.newConversation === 'function') {
-                                        cozeWebSDK.newConversation();
-                                    }
-                                } catch(e) { console.log('SDK API 调用出错:', e); }
+                                } catch(e) {}
                             }
                         }, 1500);
                     },
@@ -439,16 +449,13 @@ function initChat() {
 
 // 点击按钮事件
 document.getElementById('btn').addEventListener('click', function(){
-    // 第1步：立即删除 coze-chat-history（在 SDK 初始化之前）
+    // 1. 立即清除 localStorage 中的对话历史
     localStorage.removeItem('coze-chat-history');
     localStorage.removeItem('coze-chat-data');
     localStorage.removeItem('coze-msg-data');
-    console.log('已预清除对话历史 keys');
-    
-    // 第2步：清除其他缓存
     clearAllChatCache();
     
-    // 第3步：清空聊天容器
+    // 2. 清空聊天容器
     document.getElementById('chatContainer').innerHTML = '';
     
     document.getElementById('homePage').style.display = 'none';
@@ -457,17 +464,26 @@ document.getElementById('btn').addEventListener('click', function(){
     document.getElementById('chatContainer').classList.add('chat-open');
 
     loadSDK(function() {
-        // 第4步：SDK 加载完成后、创建实例前，再清除一次
-        localStorage.removeItem('coze-chat-history');
-        localStorage.removeItem('coze-chat-data');
-        localStorage.removeItem('coze-msg-data');
-        clearAllChatCache();
-        
-        // 第5步：创建全新实例
-        initChat();
-        if (cozeWebSDK) {
-            cozeWebSDK.showChatBot();
-        }
+        // 3. 通过 API 创建全新会话
+        createNewConversation().then(function(conversationId) {
+            // 4. 再次清除 localStorage，确保干净
+            localStorage.removeItem('coze-chat-history');
+            localStorage.removeItem('coze-chat-data');
+            localStorage.removeItem('coze-msg-data');
+            clearAllChatCache();
+            
+            // 5. 用新会话 ID 创建 SDK 实例
+            initChat(conversationId);
+            if (cozeWebSDK) {
+                cozeWebSDK.showChatBot();
+            }
+        }).catch(function(e) {
+            console.log('创建会话失败，使用默认方式:', e);
+            initChat('');
+            if (cozeWebSDK) {
+                cozeWebSDK.showChatBot();
+            }
+        });
     });
 });
 
