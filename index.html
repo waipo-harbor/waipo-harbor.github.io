@@ -505,7 +505,7 @@ document.getElementById('btn').addEventListener('click', function(){
         createNewConversation().then(function(conversationId) {
             // 用 conversation_id 参数重定向，强制全新页面加载
             var separator = window.location.search ? '&' : '?';
-            window.location.href = window.location.pathname + separator + 'cid=' + conversationId + '&t=' + Date.now();
+            window.location.href = window.location.pathname + separator + 'conversation_id=' + conversationId + '&t=' + Date.now();
         }).catch(function(e) {
             console.log('API 失败，直接加载:', e);
             openChatDirectly();
@@ -529,7 +529,7 @@ function openChatDirectly() {
 // 页面加载时检查 URL 中是否有 conversation_id 参数
 (function checkUrlParams() {
     var params = new URLSearchParams(window.location.search);
-    var cid = params.get('cid');
+    var cid = params.get('conversation_id');
     if (cid) {
         console.log('检测到 URL 中的 conversation_id:', cid);
         // 有 conversation_id 参数，自动打开聊天
