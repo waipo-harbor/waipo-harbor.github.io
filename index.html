@@ -116,19 +116,28 @@ body{
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 .close-btn:hover { background: #824fb8; }
-/* 隐藏视频/多媒体元素（仅针对明确的视频元素） */
-video, iframe[src*="video"], iframe[src*="player"], iframe[src*="media"],
-[class*="video-player"], [class*="VideoPlayer"], [class*="media-card"],
-[data-type="video"], [data-type="media"],
-.coze-video, .chat-video-player {
+/* ===== 强制隐藏视频/多媒体元素（精确选择器，不误伤输入框） ===== */
+video, audio,
+iframe[src*="video"], iframe[src*="player"], iframe[src*="media"], iframe[src*="embed"],
+/* 已知视频组件类名 */
+.video-player, .VideoPlayer, .videoPlayer, .videoplayer,
+.media-card, .mediaCard, .media-player, .mediaPlayer,
+.video-container, .media-container, .rich-media-container,
+.coze-video, .chat-video-player, .coze-player, .coze-embed,
+/* 空灰色占位框 */
+.media-placeholder, .video-placeholder, .embed-placeholder,
+.video-wrapper, .video-frame, .video-box, .media-box,
+.card-video, .card-media, .rich-card-media,
+.player-wrapper, .player-container, .player-frame,
+/* 数据属性标识 */
+[data-type="video"], [data-type="media"], [data-type="rich-media"],
+[data-component="video"], [data-component="media"] {
     display: none !important;
     height: 0 !important;
+    max-height: 0 !important;
     min-height: 0 !important;
     overflow: hidden !important;
-}
-/* 隐藏视频容器（空容器、纯灰色背景的） */
-.video-container, .media-container, .rich-media-container {
-    display: none !important;
+    visibility: hidden !important;
 }
 .loading-overlay {
     display: none;
@@ -349,49 +358,72 @@ function removeVideoElements() {
     var chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return;
     
-    // 查找并移除所有视频相关元素
+    // 1. 查找并移除所有视频/iframe元素
     var selectors = [
-        'video', 
-        'iframe[src*="video"]', 
-        'iframe[src*="player"]',
-        'iframe[src*="media"]',
-        '[class*="video-player"]',
-        '[class*="VideoPlayer"]',
-        '[class*="media-card"]',
-        '[data-type="video"]',
-        '[data-type="media"]',
-        '.coze-video',
-        '.chat-video-player',
-        '.video-container',
-        '.media-container'
+        'video', 'audio',
+        'iframe[src*="video"]', 'iframe[src*="player"]',
+        'iframe[src*="media"]', 'iframe[src*="embed"]',
+        '.video-player', '.VideoPlayer', '.videoPlayer',
+        '.media-card', '.mediaCard', '.media-player',
+        '.video-container', '.media-container', '.rich-media-container',
+        '.coze-video', '.chat-video-player', '.coze-player', '.coze-embed',
+        '.media-placeholder', '.video-placeholder',
+        '.video-wrapper', '.video-frame', '.video-box', '.media-box',
+        '.card-video', '.card-media', '.rich-card-media',
+        '[data-type="video"]', '[data-type="media"]'
     ];
     
     selectors.forEach(function(selector) {
         var elements = chatContainer.querySelectorAll(selector);
         elements.forEach(function(el) {
-            // 移除元素及其父容器（如果父容器只有这个子元素）
-            var parent = el.parentElement;
             el.remove();
-            // 如果父容器现在为空或很小，也移除
-            if (parent && parent !== chatContainer && parent.children.length === 0) {
-                parent.remove();
-            }
         });
     });
     
-    // 查找可能包含视频的 div（灰色背景、固定高度的）
+    // 2. 移除包含 video/iframe 的直接父级包装器（向上冒泡清除空壳）
+    var allEls = chatContainer.querySelectorAll('*');
+    allEls.forEach(function(el) {
+        // 如果元素包含 video 或 iframe 子元素
+        if (el.querySelector('video, iframe')) {
+            // 检查是否是消息气泡的直接子元素或包装层
+            var parent = el.parentElement;
+            if (parent && parent !== chatContainer) {
+                // 如果父元素也只有这一个子元素，也移除
+                if (parent.children.length === 1) {
+                    parent.remove();
+                }
+            }
+        }
+    });
+    
+    // 3. 查找灰色/空白占位框（视频加载失败后的灰色方块）
     var allDivs = chatContainer.querySelectorAll('div');
     allDivs.forEach(function(div) {
+        // 跳过输入框区域
+        if (div.closest('[class*="input"], [class*="footer"], [class*="compose"]')) return;
+        
         var style = window.getComputedStyle(div);
-        // 如果是灰色背景且没有文字内容的容器，可能是视频占位符
-        if (style.backgroundColor && 
-            style.backgroundColor.indexOf('229') > -1 && // 浅灰色
-            div.children.length > 0 &&
-            !div.textContent.trim() &&
-            div.offsetHeight > 100) {
+        var bg = style.backgroundColor || '';
+        var hasGrayBg = bg.indexOf('229') > -1 || bg.indexOf('238') > -1 || bg.indexOf('240') > -1 || bg.indexOf('245') > -1;
+        
+        // 灰色背景 + 有子元素 + 没有文字 + 高度>80px = 可能是视频占位符
+        if (hasGrayBg && 
+            div.children.length > 0 && 
+            !div.textContent.trim() && 
+            div.offsetHeight > 80 &&
+            div.offsetWidth > 80) {
             div.style.display = 'none';
             div.style.height = '0';
             div.style.overflow = 'hidden';
+        }
+    });
+    
+    // 4. 移除 aspect-ratio 样式的容器（视频播放器常见）
+    var ratioDivs = chatContainer.querySelectorAll('div[style*="aspect-ratio"], div[style*="aspectRatio"]');
+    ratioDivs.forEach(function(div) {
+        if (!div.closest('[class*="input"], [class*="footer"]')) {
+            div.style.display = 'none';
+            div.style.height = '0';
         }
     });
 }
@@ -401,36 +433,32 @@ function startVideoRemover() {
     // 立即执行一次
     removeVideoElements();
     
-    // 使用 MutationObserver 监控 DOM 变化
     var chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return;
     
+    // MutationObserver：任何 DOM 变化都触发检查
     var observer = new MutationObserver(function(mutations) {
+        var hasNewNodes = false;
         mutations.forEach(function(mutation) {
-            // 检查是否有新添加的节点
-            mutation.addedNodes.forEach(function(node) {
-                if (node.nodeType === 1) { // 元素节点
-                    // 检查新节点是否是视频相关
-                    if (node.tagName === 'VIDEO' || 
-                        node.tagName === 'IFRAME' ||
-                        (node.className && typeof node.className === 'string' && 
-                         (node.className.indexOf('video') > -1 || 
-                          node.className.indexOf('Video') > -1 ||
-                          node.className.indexOf('media') > -1))) {
-                        setTimeout(removeVideoElements, 100);
-                    }
-                }
-            });
+            if (mutation.addedNodes.length > 0) {
+                hasNewNodes = true;
+            }
         });
+        if (hasNewNodes) {
+            // 延迟 200ms 让 SDK 完成渲染后再检查
+            setTimeout(removeVideoElements, 200);
+        }
     });
     
     observer.observe(chatContainer, {
         childList: true,
-        subtree: true
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style', 'src']
     });
     
-    // 定期检查（作为备用方案）
-    setInterval(removeVideoElements, 2000);
+    // 定期检查（更频繁，作为备用）
+    setInterval(removeVideoElements, 1500);
 }
 
 // 加载 SDK 脚本
