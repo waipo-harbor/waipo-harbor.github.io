@@ -285,28 +285,36 @@ function clearAllChatCache() {
 
 // 页面加载时立即清除缓存（最早执行）
 (function() {
-    // 强制清除所有 coze/chat 相关的 localStorage
-    for (var i = localStorage.length - 1; i >= 0; i--) {
-        var key = localStorage.key(i);
-        if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
-            localStorage.removeItem(key);
+    function doClear() {
+        for (var i = localStorage.length - 1; i >= 0; i--) {
+            var key = localStorage.key(i);
+            if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
+                localStorage.removeItem(key);
+            }
+        }
+        for (var i = sessionStorage.length - 1; i >= 0; i--) {
+            var key = sessionStorage.key(i);
+            if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
+                sessionStorage.removeItem(key);
+            }
+        }
+        if (window.indexedDB && indexedDB.databases) {
+            indexedDB.databases().then(function(dbs) {
+                dbs.forEach(function(db) {
+                    if (db.name && (db.name.indexOf('coze') !== -1 || db.name.indexOf('chat') !== -1)) {
+                        indexedDB.deleteDatabase(db.name);
+                    }
+                });
+            }).catch(function(){});
         }
     }
-    // 强制清除所有 coze/chat 相关的 sessionStorage
-    for (var i = sessionStorage.length - 1; i >= 0; i--) {
-        var key = sessionStorage.key(i);
-        if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
-            sessionStorage.removeItem(key);
+    doClear();
+    // 防止浏览器从缓存恢复旧状态
+    window.onpageshow = function(event) {
+        if (event.persisted) {
+            doClear();
         }
-    }
-    // 清除所有 IndexedDB 数据库
-    if (window.indexedDB && window.indexedDB.databases) {
-        window.indexedDB.databases().then(function(dbs) {
-            dbs.forEach(function(db) {
-                if (db.name) indexedDB.deleteDatabase(db.name);
-            });
-        }).catch(function(){});
-    }
+    };
 })();
 
 // 显示错误信息
