@@ -427,6 +427,7 @@ function initChat(conversationId) {
                 url: 'https://lf-coze-web-cdn.coze.cn/obj/coze-web-cn/obric/coze/favicon.1970.png',
                 nickname: '用户'
             },
+            extra: conversationId ? { conversation_id: conversationId } : undefined,
             ui: {
                 base: {
                     layout: window.innerWidth >= 768 ? 'pc' : 'mobile',
@@ -440,7 +441,6 @@ function initChat(conversationId) {
                     el: document.getElementById('chatContainer'),
                     isNeedAudio: true,
                     isNeedFunctionCallMessage: true,
-                    conversation_id: conversationId,
                     onShow: function() {
                         document.getElementById('loadingOverlay').style.display = 'none';
                         // 对话显示后，清除 SDK 的对话历史存储
@@ -484,12 +484,11 @@ document.getElementById('btn').addEventListener('click', function(){
     localStorage.removeItem('coze-msg-data');
     clearAllChatCache();
     
-    // 2. 清除 IndexedDB（SDK 可能把对话存在这里）
+    // 2. 清除 IndexedDB
     if (window.indexedDB) {
-        var deleteReq = indexedDB.deleteDatabase('coze-webchat');
-        deleteReq.onsuccess = function() { console.log('已删除 IndexedDB: coze-webchat'); };
-        deleteReq.onerror = function() {};
-        // 也删除所有可能相关的数据库
+        try {
+            indexedDB.deleteDatabase('coze-webchat');
+        } catch(e) {}
         if (indexedDB.databases) {
             indexedDB.databases().then(function(dbs) {
                 dbs.forEach(function(db) {
@@ -501,37 +500,52 @@ document.getElementById('btn').addEventListener('click', function(){
         }
     }
     
-    // 3. 清空聊天容器
-    document.getElementById('chatContainer').innerHTML = '';
-    
+    // 3. 通过 API 创建新会话，然后重定向到新 URL
+    loadSDK(function() {
+        createNewConversation().then(function(conversationId) {
+            // 用 conversation_id 参数重定向，强制全新页面加载
+            var separator = window.location.search ? '&' : '?';
+            window.location.href = window.location.pathname + separator + 'cid=' + conversationId + '&t=' + Date.now();
+        }).catch(function(e) {
+            console.log('API 失败，直接加载:', e);
+            openChatDirectly();
+        });
+    });
+});
+
+// 直接打开聊天（不使用 URL 参数）
+function openChatDirectly() {
     document.getElementById('homePage').style.display = 'none';
     document.getElementById('closeBtn').style.display = 'block';
     document.getElementById('loadingOverlay').style.display = 'flex';
     document.getElementById('chatContainer').classList.add('chat-open');
+    
+    initChat('');
+    if (cozeWebSDK) {
+        cozeWebSDK.showChatBot();
+    }
+}
 
-    loadSDK(function() {
-        // 4. 通过 API 创建全新会话
-        createNewConversation().then(function(conversationId) {
-            // 5. 再次清除 localStorage
-            localStorage.removeItem('coze-chat-history');
-            localStorage.removeItem('coze-chat-data');
-            localStorage.removeItem('coze-msg-data');
-            clearAllChatCache();
-            
-            // 6. 用新会话 ID 创建 SDK 实例
-            initChat(conversationId);
-            if (cozeWebSDK) {
-                cozeWebSDK.showChatBot();
-            }
-        }).catch(function(e) {
-            console.log('创建会话失败，使用默认方式:', e);
-            initChat('');
+// 页面加载时检查 URL 中是否有 conversation_id 参数
+(function checkUrlParams() {
+    var params = new URLSearchParams(window.location.search);
+    var cid = params.get('cid');
+    if (cid) {
+        console.log('检测到 URL 中的 conversation_id:', cid);
+        // 有 conversation_id 参数，自动打开聊天
+        document.getElementById('homePage').style.display = 'none';
+        document.getElementById('closeBtn').style.display = 'block';
+        document.getElementById('loadingOverlay').style.display = 'flex';
+        document.getElementById('chatContainer').classList.add('chat-open');
+        
+        loadSDK(function() {
+            initChat(cid);
             if (cozeWebSDK) {
                 cozeWebSDK.showChatBot();
             }
         });
-    });
-});
+    }
+})();
 
 // 关闭按钮事件
 document.getElementById('closeBtn').addEventListener('click', function(){
