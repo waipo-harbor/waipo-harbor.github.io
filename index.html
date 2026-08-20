@@ -368,7 +368,35 @@ function initChat() {
     }
 }
 
+// 强制清除所有缓存的函数
+function clearAllChatCache() {
+    try {
+        // 清除 localStorage 中所有可能的 chat 相关数据
+        for (var i = localStorage.length - 1; i >= 0; i--) {
+            var key = localStorage.key(i);
+            if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1 || 
+                key.indexOf('webchat') !== -1 || key.indexOf('sdk') !== -1 ||
+                key.indexOf('bot') !== -1 || key.indexOf('7673548882957516835') !== -1 ||
+                key.indexOf('message') !== -1 || key.indexOf('history') !== -1 ||
+                key.indexOf('conversation') !== -1)) {
+                localStorage.removeItem(key);
+            }
+        }
+        // 清除 sessionStorage
+        for (var i = sessionStorage.length - 1; i >= 0; i--) {
+            var key = sessionStorage.key(i);
+            if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
+                sessionStorage.removeItem(key);
+            }
+        }
+    } catch(e) {}
+}
+// 页面加载时立即清除
+clearAllChatCache();
+
 btn.addEventListener('click', function(){
+    // 点击按钮时也清除一次
+    clearAllChatCache();
     homePage.style.display = 'none';
     closeBtn.style.display = 'block';
     loadingOverlay.style.display = 'flex';
