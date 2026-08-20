@@ -116,13 +116,19 @@ body{
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 .close-btn:hover { background: #824fb8; }
-/* 隐藏 Chat SDK 自动渲染的视频播放器 */
-video, iframe[src*="video"], iframe[src*="player"],
-[class*="video"], [class*="Video"], [data-type="video"],
+/* 隐藏视频/多媒体元素（仅针对明确的视频元素） */
+video, iframe[src*="video"], iframe[src*="player"], iframe[src*="media"],
+[class*="video-player"], [class*="VideoPlayer"], [class*="media-card"],
+[data-type="video"], [data-type="media"],
 .coze-video, .chat-video-player {
     display: none !important;
-    max-height: 0 !important;
+    height: 0 !important;
+    min-height: 0 !important;
     overflow: hidden !important;
+}
+/* 隐藏视频容器（空容器、纯灰色背景的） */
+.video-container, .media-container, .rich-media-container {
+    display: none !important;
 }
 .loading-overlay {
     display: none;
@@ -338,6 +344,95 @@ function showError(title, detail) {
     document.getElementById('closeBtn').style.display = 'none';
 }
 
+// 移除视频元素的函数
+function removeVideoElements() {
+    var chatContainer = document.getElementById('chatContainer');
+    if (!chatContainer) return;
+    
+    // 查找并移除所有视频相关元素
+    var selectors = [
+        'video', 
+        'iframe[src*="video"]', 
+        'iframe[src*="player"]',
+        'iframe[src*="media"]',
+        '[class*="video-player"]',
+        '[class*="VideoPlayer"]',
+        '[class*="media-card"]',
+        '[data-type="video"]',
+        '[data-type="media"]',
+        '.coze-video',
+        '.chat-video-player',
+        '.video-container',
+        '.media-container'
+    ];
+    
+    selectors.forEach(function(selector) {
+        var elements = chatContainer.querySelectorAll(selector);
+        elements.forEach(function(el) {
+            // 移除元素及其父容器（如果父容器只有这个子元素）
+            var parent = el.parentElement;
+            el.remove();
+            // 如果父容器现在为空或很小，也移除
+            if (parent && parent !== chatContainer && parent.children.length === 0) {
+                parent.remove();
+            }
+        });
+    });
+    
+    // 查找可能包含视频的 div（灰色背景、固定高度的）
+    var allDivs = chatContainer.querySelectorAll('div');
+    allDivs.forEach(function(div) {
+        var style = window.getComputedStyle(div);
+        // 如果是灰色背景且没有文字内容的容器，可能是视频占位符
+        if (style.backgroundColor && 
+            style.backgroundColor.indexOf('229') > -1 && // 浅灰色
+            div.children.length > 0 &&
+            !div.textContent.trim() &&
+            div.offsetHeight > 100) {
+            div.style.display = 'none';
+            div.style.height = '0';
+            div.style.overflow = 'hidden';
+        }
+    });
+}
+
+// 启动视频移除监控
+function startVideoRemover() {
+    // 立即执行一次
+    removeVideoElements();
+    
+    // 使用 MutationObserver 监控 DOM 变化
+    var chatContainer = document.getElementById('chatContainer');
+    if (!chatContainer) return;
+    
+    var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            // 检查是否有新添加的节点
+            mutation.addedNodes.forEach(function(node) {
+                if (node.nodeType === 1) { // 元素节点
+                    // 检查新节点是否是视频相关
+                    if (node.tagName === 'VIDEO' || 
+                        node.tagName === 'IFRAME' ||
+                        (node.className && typeof node.className === 'string' && 
+                         (node.className.indexOf('video') > -1 || 
+                          node.className.indexOf('Video') > -1 ||
+                          node.className.indexOf('media') > -1))) {
+                        setTimeout(removeVideoElements, 100);
+                    }
+                }
+            });
+        });
+    });
+    
+    observer.observe(chatContainer, {
+        childList: true,
+        subtree: true
+    });
+    
+    // 定期检查（作为备用方案）
+    setInterval(removeVideoElements, 2000);
+}
+
 // 加载 SDK 脚本
 function loadSDK(callback) {
     if (typeof CozeWebSDK !== 'undefined') {
@@ -457,6 +552,8 @@ function initChat(conversationId) {
                     isNeedFunctionCallMessage: true,
                     onShow: function() {
                         document.getElementById('loadingOverlay').style.display = 'none';
+                        // 监控并移除视频元素
+                        startVideoRemover();
                     },
                     onHide: function() {
                         document.getElementById('chatContainer').classList.remove('chat-open');
