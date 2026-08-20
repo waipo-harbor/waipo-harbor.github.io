@@ -439,10 +439,16 @@ function initChat() {
 
 // 点击按钮事件
 document.getElementById('btn').addEventListener('click', function(){
-    // 1. 点击时彻底清除缓存
+    // 第1步：立即删除 coze-chat-history（在 SDK 初始化之前）
+    localStorage.removeItem('coze-chat-history');
+    localStorage.removeItem('coze-chat-data');
+    localStorage.removeItem('coze-msg-data');
+    console.log('已预清除对话历史 keys');
+    
+    // 第2步：清除其他缓存
     clearAllChatCache();
     
-    // 2. 清空聊天容器
+    // 第3步：清空聊天容器
     document.getElementById('chatContainer').innerHTML = '';
     
     document.getElementById('homePage').style.display = 'none';
@@ -451,10 +457,13 @@ document.getElementById('btn').addEventListener('click', function(){
     document.getElementById('chatContainer').classList.add('chat-open');
 
     loadSDK(function() {
-        // 3. SDK 加载完成后、创建实例前，再清除一次
+        // 第4步：SDK 加载完成后、创建实例前，再清除一次
+        localStorage.removeItem('coze-chat-history');
+        localStorage.removeItem('coze-chat-data');
+        localStorage.removeItem('coze-msg-data');
         clearAllChatCache();
         
-        // 4. 创建全新实例
+        // 第5步：创建全新实例
         initChat();
         if (cozeWebSDK) {
             cozeWebSDK.showChatBot();
