@@ -358,6 +358,24 @@ function createNewConversation() {
       });
 }
 
+// SDK 对话历史存储清除
+function clearSDKChatHistory() {
+    try {
+        for (var i = localStorage.length - 1; i >= 0; i--) {
+            var key = localStorage.key(i);
+            if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
+                localStorage.removeItem(key);
+            }
+        }
+        for (var i = sessionStorage.length - 1; i >= 0; i--) {
+            var key = sessionStorage.key(i);
+            if (key && (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1)) {
+                sessionStorage.removeItem(key);
+            }
+        }
+    } catch(e) {}
+}
+
 // 初始化聊天（每次都创建全新实例并清除历史）
 function initChat(conversationId) {
     try {
@@ -455,7 +473,24 @@ document.getElementById('btn').addEventListener('click', function(){
     localStorage.removeItem('coze-msg-data');
     clearAllChatCache();
     
-    // 2. 清空聊天容器
+    // 2. 清除 IndexedDB（SDK 可能把对话存在这里）
+    if (window.indexedDB) {
+        var deleteReq = indexedDB.deleteDatabase('coze-webchat');
+        deleteReq.onsuccess = function() { console.log('已删除 IndexedDB: coze-webchat'); };
+        deleteReq.onerror = function() {};
+        // 也删除所有可能相关的数据库
+        if (indexedDB.databases) {
+            indexedDB.databases().then(function(dbs) {
+                dbs.forEach(function(db) {
+                    if (db.name && (db.name.indexOf('coze') !== -1 || db.name.indexOf('chat') !== -1)) {
+                        indexedDB.deleteDatabase(db.name);
+                    }
+                });
+            }).catch(function(){});
+        }
+    }
+    
+    // 3. 清空聊天容器
     document.getElementById('chatContainer').innerHTML = '';
     
     document.getElementById('homePage').style.display = 'none';
@@ -464,15 +499,15 @@ document.getElementById('btn').addEventListener('click', function(){
     document.getElementById('chatContainer').classList.add('chat-open');
 
     loadSDK(function() {
-        // 3. 通过 API 创建全新会话
+        // 4. 通过 API 创建全新会话
         createNewConversation().then(function(conversationId) {
-            // 4. 再次清除 localStorage，确保干净
+            // 5. 再次清除 localStorage
             localStorage.removeItem('coze-chat-history');
             localStorage.removeItem('coze-chat-data');
             localStorage.removeItem('coze-msg-data');
             clearAllChatCache();
             
-            // 5. 用新会话 ID 创建 SDK 实例
+            // 6. 用新会话 ID 创建 SDK 实例
             initChat(conversationId);
             if (cozeWebSDK) {
                 cozeWebSDK.showChatBot();
