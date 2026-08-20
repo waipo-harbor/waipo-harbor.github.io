@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>外婆港湾居家养护助手</title>
+<style>
+*{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: "微软雅黑",system-ui,sans-serif;
+}
+body{
+    background: linear-gradient(135deg, #f7f2fc 0%, #efe6f8 100%);
+    min-height: 100vh;
+    padding-top: 100px;
+    text-align: center;
+}
+.logo{
+    width: 70px;
+    height: 76px;
+    margin: 0 auto 24px;
+}
+.title{
+    font-size: 34px;
+    color:#3b2e4c;
+    margin-bottom:12px;
+    font-weight: 600;
+}
+.tag{
+    display: inline-block;
+    padding: 8px 16px;
+    background: #ede4f7;
+    color: #8855bb;
+    border-radius: 20px;
+    font-size: 14px;
+    margin-bottom: 24px;
+}
+.desc{
+    font-size:20px;
+    margin-bottom: 60px;
+    line-height: 1.8;
+    font-weight: 600;
+}
+.gradient-text{
+    background: linear-gradient(135deg, #9966cc 0%, #824fb8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.slogan-sub{
+    font-size: 16px;
+    font-weight: 400;
+    display: block;
+    margin-top: 4px;
+}
+.open-btn{
+    font-size:20px;
+    padding:16px 42px;
+    background:#9966cc;
+    color:#fff;
+    border:none;
+    border-radius:12px;
+    cursor:pointer;
+    box-shadow: 0 4px 12px rgba(153, 102, 204, 0.3);
+    transition: all 0.25s ease;
+}
+.open-btn:hover{
+    background:#824fb8;
+    box-shadow: 0 6px 16px rgba(153, 102, 204, 0.45);
+}
+#chatContainer {
+    display: none !important;
+    position: fixed !important;
+    top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+    z-index: 99998 !important;
+    background: #fff !important;
+    justify-content: center !important;
+    align-items: center !important;
+    text-align: left !important;
+}
+#chatContainer.chat-open {
+    display: flex !important;
+}
+#chatContainer > * {
+    max-width: 700px !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 auto !important;
+}
+#chatContainer iframe,
+#chatContainer div[class*="chat"],
+#chatContainer div[class*="wrapper"],
+#chatContainer div[class*="container"] {
+    max-width: 700px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+.close-btn {
+    display: none;
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    background: rgba(153,102,204,0.9);
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-size: 14px;
+    cursor: pointer;
+    z-index: 1000000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.close-btn:hover { background: #824fb8; }
+.loading-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255,255,255,0.9);
+    z-index: 99999;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+}
+.loading-overlay .spinner {
+    width: 40px; height: 40px;
+    border: 4px solid #ede4f7;
+    border-top-color: #9966cc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-overlay .text {
+    font-size: 18px;
+    color: #9966cc;
+}
+.error-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255,255,255,0.95);
+    z-index: 100000;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+}
+.error-overlay .icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+.error-overlay h3 {
+    color: #e74c3c;
+    margin-bottom: 12px;
+    font-size: 20px;
+}
+.error-overlay p {
+    color: #666;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 80%;
+    line-height: 1.6;
+}
+.error-overlay .detail {
+    background: #f5f5f5;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #999;
+    max-width: 80%;
+    margin: 12px 0;
+    text-align: left;
+    word-break: break-all;
+}
+.error-overlay button {
+    margin-top: 16px;
+    background: #9966cc;
+    color: #fff;
+    border: none;
+    padding: 12px 32px;
+    border-radius: 8px;
+    font-size: 16px;
+    cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<button class="close-btn" id="closeBtn">← 返回首页</button>
+
+<div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <div class="text">正在加载聊天界面...</div>
+</div>
+
+<div class="error-overlay" id="errorOverlay">
+    <div class="icon">⚠️</div>
+    <h3>聊天界面加载失败</h3>
+    <p id="errorMsg">未知错误</p>
+    <div class="detail" id="errorDetail"></div>
+    <button onclick="location.reload()">重新加载</button>
+</div>
+
+<div id="chatContainer"></div>
+
+<!-- 首页 -->
+<div id="homePage">
+<div class="logo">
+<svg viewBox="0 0 100 110" width="70" height="76">
+  <path d="M50 6 L92 20 L92 52 C92 80 50 104 50 104 C50 104 8 80 8 52 L8 20 Z" fill="url(#purpleGrad)"/>
+  <defs>
+    <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9966cc"/>
+      <stop offset="100%" stop-color="#824fb8"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffdd70"/>
+      <stop offset="100%" stop-color="#e6b840"/>
+    </linearGradient>
+  </defs>
+  <path d="M50,38 C42,30 30,34 30,48 C30,62 50,74 50,74 C50,74 70,62 70,48 C70,34 58,30 50,38 Z" fill="url(#goldGrad)"/>
+</svg>
+</div>
+<h1 class="title">外婆港湾居家养护助手</h1>
+<div class="tag">亲情陪护 · 康复咨询 · 日常关怀</div>
+<p class="desc">
+    <span class="gradient-text">以爱为名，以AI为翼</span>
+    <span class="gradient-text slogan-sub">五年级小学生为外婆打造的康复礼物</span>
+</p>
+<button class="open-btn" id="btn">点击开启康复AI助手</button>
+</div>
+
+<script>
+// 全局变量
+var cozeWebSDK = null;
+var sdkLoaded = false;
+
+// 彻底清除所有 Chat SDK 相关缓存的函数
+function clearAllChatCache() {
+    try {
+        console.log('开始清除缓存...');
+        
+        // 清除 localStorage 中所有可能的 chat 相关数据
+        var keysToRemove = [];
+        for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            if (key && (
+                key.indexOf('coze') !== -1 || 
+                key.indexOf('chat') !== -1 || 
+                key.indexOf('webchat') !== -1 || 
+                key.indexOf('sdk') !== -1 ||
+                key.indexOf('bot') !== -1 || 
+                key.indexOf('7673548882957516835') !== -1 ||
+                key.indexOf('message') !== -1 || 
+                key.indexOf('history') !== -1 ||
+                key.indexOf('conversation') !== -1 ||
+                key.indexOf('session') !== -1 ||
+                key.indexOf('user') !== -1
+            )) {
+                keysToRemove.push(key);
+            }
+        }
+        
+        // 删除所有匹配的 key
+        keysToRemove.forEach(function(key) {
+            localStorage.removeItem(key);
+            console.log('已删除 localStorage:', key);
+        });
+        
+        // 清除 sessionStorage
+        keysToRemove = [];
+        for (var i = 0; i < sessionStorage.length; i++) {
+            var key = sessionStorage.key(i);
+            if (key && (
+                key.indexOf('coze') !== -1 || 
+                key.indexOf('chat') !== -1 ||
+                key.indexOf('webchat') !== -1 ||
+                key.indexOf('sdk') !== -1 ||
+                key.indexOf('bot') !== -1 ||
+                key.indexOf('7673548882957516835') !== -1
+            )) {
+                keysToRemove.push(key);
+            }
+        }
+        
+        keysToRemove.forEach(function(key) {
+            sessionStorage.removeItem(key);
+            console.log('已删除 sessionStorage:', key);
+        });
+        
+        // 清除 cookies
+        document.cookie.split(";").forEach(function(c) {
+            if (c.indexOf('coze') !== -1 || c.indexOf('chat') !== -1) {
+                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+            }
+        });
+        
+        console.log('缓存清除完成');
+    } catch(e) {
+        console.log('缓存清除出错:', e);
+    }
+}
+
+// 页面加载时立即清除缓存
+clearAllChatCache();
+
+// 显示错误信息
+function showError(title, detail) {
+    document.getElementById('loadingOverlay').style.display = 'none';
+    document.getElementById('errorMsg').textContent = title;
+    document.getElementById('errorDetail').textContent = detail || '';
+    document.getElementById('errorOverlay').style.display = 'flex';
+    document.getElementById('homePage').style.display = '';
+    document.getElementById('closeBtn').style.display = 'none';
+}
+
+// 加载 SDK 脚本
+function loadSDK(callback) {
+    if (typeof CozeWebSDK !== 'undefined') {
+        callback();
+        return;
+    }
+    var script = document.createElement('script');
+    script.src = 'https://lf-cdn.coze.cn/obj/unpkg/flow-platform/chat-app-sdk/1.2.0-beta.20/libs/cn/index.js';
+    script.onload = function() { 
+        sdkLoaded = true;
+        callback(); 
+    };
+    script.onerror = function() {
+        showError('SDK 脚本加载失败', '无法从 CDN 下载 Chat SDK，请检查网络连接');
+    };
+    document.head.appendChild(script);
+}
+
+// 初始化聊天（每次都创建全新实例）
+function initChat() {
+    try {
+        // 如果已有实例，尝试销毁
+        if (cozeWebSDK) {
+            try {
+                if (typeof cozeWebSDK.destroy === 'function') {
+                    cozeWebSDK.destroy();
+                } else if (typeof cozeWebSDK.close === 'function') {
+                    cozeWebSDK.close();
+                }
+            } catch(e) {
+                console.log('销毁旧实例出错:', e);
+            }
+            cozeWebSDK = null;
+        }
+        
+        // 生成完全随机的用户 ID
+        var randomUserId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 15);
+        console.log('使用新用户 ID:', randomUserId);
+        
+        // 创建全新的 WebChatClient 实例
+        cozeWebSDK = new CozeWebSDK.WebChatClient({
+            config: {
+                bot_id: '7673548882957516835',
+                isIframe: false
+            },
+            auth: {
+                type: 'token',
+                token: 'pat_ijcyjbaT6lOVV92tApQrNccNVgzVnRdpg1g2bl4RHlAAZnFbNkbwrjEg88qtl5JV',
+                onRefreshToken: function() {
+                    return 'pat_ijcyjbaT6lOVV92tApQrNccNVgzVnRdpg1g2bl4RHlAAZnFbNkbwrjEg88qtl5JV';
+                }
+            },
+            userInfo: {
+                id: randomUserId,
+                url: 'https://lf-coze-web-cdn.coze.cn/obj/coze-web-cn/obric/coze/favicon.1970.png',
+                nickname: '用户'
+            },
+            ui: {
+                base: {
+                    layout: window.innerWidth >= 768 ? 'pc' : 'mobile',
+                    lang: 'zh-CN',
+                    zIndex: 99998
+                },
+                asstBtn: { isNeed: false },
+                header: { isShow: true, isNeedClose: false },
+                chatBot: {
+                    title: '外婆港湾居家养护助手',
+                    el: document.getElementById('chatContainer'),
+                    isNeedAudio: true,
+                    isNeedFunctionCallMessage: true,
+                    onShow: function() {
+                        document.getElementById('loadingOverlay').style.display = 'none';
+                    },
+                    onHide: function() {
+                        document.getElementById('chatContainer').classList.remove('chat-open');
+                        document.getElementById('closeBtn').style.display = 'none';
+                        document.getElementById('homePage').style.display = '';
+                        // 关闭时也清除缓存
+                        clearAllChatCache();
+                    }
+                },
+                footer: { isShow: false }
+            }
+        });
+        
+        if (cozeWebSDK.on) {
+            cozeWebSDK.on('error', function(e) {
+                showError('Chat SDK 错误', JSON.stringify(e));
+            });
+        }
+        
+        console.log('Chat SDK 实例创建成功');
+    } catch(e) {
+        showError('初始化失败', e.message + '\n' + (e.stack || ''));
+    }
+}
+
+// 点击按钮事件
+document.getElementById('btn').addEventListener('click', function(){
+    // 点击按钮时彻底清除缓存
+    clearAllChatCache();
+    
+    // 清空聊天容器内容
+    document.getElementById('chatContainer').innerHTML = '';
+    
+    document.getElementById('homePage').style.display = 'none';
+    document.getElementById('closeBtn').style.display = 'block';
+    document.getElementById('loadingOverlay').style.display = 'flex';
+    document.getElementById('chatContainer').classList.add('chat-open');
+
+    loadSDK(function() {
+        // 每次都创建全新的实例
+        initChat();
+        if (cozeWebSDK) {
+            cozeWebSDK.showChatBot();
+        }
+    });
+});
+
+// 关闭按钮事件
+document.getElementById('closeBtn').addEventListener('click', function(){
+    if (cozeWebSDK) {
+        cozeWebSDK.hideChatBot();
+        // 关闭后清除缓存
+        setTimeout(function() {
+            clearAllChatCache();
+        }, 100);
+    } else {
+        document.getElementById('chatContainer').classList.remove('chat-open');
+        document.getElementById('closeBtn').style.display = 'none';
+        document.getElementById('homePage').style.display = '';
+    }
+});
+
+// 页面卸载时也清除缓存
+window.addEventListener('beforeunload', function() {
+    clearAllChatCache();
+});
+</script>
+</body>
+</html>
