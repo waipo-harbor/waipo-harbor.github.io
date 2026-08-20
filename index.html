@@ -233,6 +233,21 @@ body{
 </div>
 
 <script>
+// 清除 Chat SDK 缓存
+try {
+    Object.keys(localStorage).forEach(function(key) {
+        if (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1 || key.indexOf('webchat') !== -1) {
+            localStorage.removeItem(key);
+        }
+    });
+    // 清除所有 coze 相关的 sessionStorage
+    Object.keys(sessionStorage).forEach(function(key) {
+        if (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1) {
+            sessionStorage.removeItem(key);
+        }
+    });
+} catch(e) {}
+
 var cozeWebSDK = null;
 var btn = document.getElementById('btn');
 var homePage = document.getElementById('homePage');
