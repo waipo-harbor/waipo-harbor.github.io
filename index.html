@@ -124,8 +124,14 @@ body{
     overflow: hidden !important;
     visibility: hidden !important;
 }
-/* 2. 所有 iframe（聊天区不需要 iframe） */
-#chatContainer iframe {
+/* 2. 只隐藏视频/媒体类 iframe，不隐藏 SDK 自身的 iframe */
+#chatContainer iframe[src*="video"],
+#chatContainer iframe[src*="player"],
+#chatContainer iframe[src*="media"],
+#chatContainer iframe[src*="embed"],
+#chatContainer iframe[src*="bilibili"],
+#chatContainer iframe[src*="youtube"],
+#chatContainer iframe[src*="youku"] {
     display: none !important;
     width: 0 !important;
     height: 0 !important;
