@@ -257,6 +257,14 @@ function initChat(userId) {
                 footer: { isShow: false }
             }
         });
+
+        // 显示聊天界面
+        cozeWebSDK.showChatBot();
+
+        // 兜底：5秒后强制隐藏加载动画
+        setTimeout(function() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }, 5000);
     } catch(e) {
         document.getElementById('loadingOverlay').style.display = 'none';
         alert('初始化失败: ' + e.message);
