@@ -81,7 +81,6 @@ body{
     top: 0; left: 0; right: 0; bottom: 0;
     z-index: 99998;
     background: #fff;
-    text-align: left;
     justify-content: center;
 }
 #chatContainer.chat-open {
@@ -92,6 +91,7 @@ body{
     max-width: 700px;
     height: 100%;
 }
+/* 强制聊天区文字左对齐 */
 #chatContainer,
 #chatContainer div,
 #chatContainer p,
@@ -119,6 +119,7 @@ body{
 }
 .close-btn:hover { background: #824fb8; }
 
+/* 只隐藏 video/audio 元素本身 */
 #chatContainer video,
 #chatContainer audio {
     display: none !important;
@@ -190,12 +191,10 @@ body{
 var PAT_TOKEN = 'pat_ijcyjbaT6lOVV92tApQrNccNVgzVnRdpg1g2bl4RHlAAZnFbNkbwrjEg88qtl5JV';
 var BOT_ID = '7673548882957516835';
 var cozeWebSDK = null;
-var welcomeInjected = false;
 var monitorObserver = null;
-var welcomeObserver = null;
 var initializing = false;
 
-// ===== 清除聊天相关缓存 =====
+// ===== 清除本地缓存（不碰 IndexedDB，避免破坏 SDK 状态） =====
 function clearChatCache() {
     try {
         var keys = Object.keys(localStorage);
@@ -208,13 +207,6 @@ function clearChatCache() {
             var name = eqPos > -1 ? c.substr(0, eqPos).trim() : c.trim();
             document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
         });
-        if (window.indexedDB && indexedDB.databases) {
-            indexedDB.databases().then(function(dbs) {
-                dbs.forEach(function(db) {
-                    if (db.name) indexedDB.deleteDatabase(db.name);
-                });
-            }).catch(function(){});
-        }
     } catch(e) {}
 }
 
@@ -246,83 +238,6 @@ function createNewConversation() {
     });
 }
 
-// ===== 查找 SDK 消息区 =====
-function findScrollContainer() {
-    var chat = document.getElementById('chatContainer');
-    if (!chat) return null;
-    var divs = chat.querySelectorAll('div');
-    var best = null;
-    var bestScore = 0;
-    for (var i = 0; i < divs.length; i++) {
-        var d = divs[i];
-        if (d.offsetHeight < 150 || d.offsetWidth < 150) continue;
-        var style = getComputedStyle(d);
-        var oy = style.overflowY;
-        var score = 0;
-        if (oy === 'auto' || oy === 'scroll') score += 100;
-        score += Math.min(d.children.length, 20);
-        var cls = (d.className || '').toString().toLowerCase();
-        if (cls.indexOf('message') > -1 || cls.indexOf('msg') > -1 || cls.indexOf('chat') > -1 || cls.indexOf('content') > -1 || cls.indexOf('body') > -1) score += 30;
-        if (score > bestScore) {
-            bestScore = score;
-            best = d;
-        }
-    }
-    return best;
-}
-
-// ===== 构建欢迎消息 DOM =====
-function buildWelcomeEl() {
-    var div = document.createElement('div');
-    div.id = 'welcomeMsg';
-    div.setAttribute('data-welcome', '1');
-    div.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:16px;animation:welcomeFadeIn 0.3s ease;';
-    div.innerHTML =
-        '<div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9966cc,#824fb8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;flex-shrink:0;">🏠</div>' +
-        '<div style="background:#f4f0f9;border-radius:12px;padding:12px 16px;max-width:80%;line-height:1.6;color:#333;font-size:15px;">您好！我是外婆港湾居家养护助手，很高兴为您服务。请问我该怎么称呼您比较合适呢？叫爷爷还是奶奶呀？</div>';
-    return div;
-}
-
-// ===== 注入欢迎消息 =====
-function tryInjectWelcome() {
-    if (welcomeInjected) return;
-    var chat = document.getElementById('chatContainer');
-    if (!chat) return;
-    // 已存在则不重复
-    if (chat.querySelector('#welcomeMsg')) {
-        welcomeInjected = true;
-        return;
-    }
-    var container = findScrollContainer();
-    if (!container) return;
-    var welcomeEl = buildWelcomeEl();
-    container.insertBefore(welcomeEl, container.firstChild);
-    welcomeInjected = true;
-    // 滚动到顶部
-    try { container.scrollTop = 0; } catch(e) {}
-}
-
-// ===== 启动 MutationObserver 监听 SDK 渲染 =====
-function observeForWelcome() {
-    if (welcomeObserver) {
-        try { welcomeObserver.disconnect(); } catch(e) {}
-    }
-    var chat = document.getElementById('chatContainer');
-    if (!chat) return;
-    welcomeObserver = new MutationObserver(function() {
-        if (!welcomeInjected) {
-            tryInjectWelcome();
-        }
-    });
-    welcomeObserver.observe(chat, { childList: true, subtree: true });
-    // 多轮兜底
-    [200, 500, 1000, 2000, 3500, 5000].forEach(function(d) {
-        setTimeout(function() {
-            if (!welcomeInjected) tryInjectWelcome();
-        }, d);
-    });
-}
-
 // ===== 只对短问候/告别回复去除免责 =====
 function cleanShortAckDisclaimer() {
     var chat = document.getElementById('chatContainer');
@@ -335,7 +250,6 @@ function cleanShortAckDisclaimer() {
             if (!p) return NodeFilter.FILTER_REJECT;
             var tag = p.tagName;
             if (tag === 'SCRIPT' || tag === 'STYLE') return NodeFilter.FILTER_REJECT;
-            if (p.closest && p.closest('#welcomeMsg')) return NodeFilter.FILTER_REJECT;
             if (node.nodeValue.indexOf('参考') === -1 &&
                 node.nodeValue.indexOf('遵医嘱') === -1 &&
                 node.nodeValue.indexOf('不能替代') === -1 &&
@@ -349,10 +263,10 @@ function cleanShortAckDisclaimer() {
     var n;
     while (n = walker.nextNode()) { nodes.push(n); }
 
-    var ACK_PATTERN = /好的|谢谢|感谢|嗯嗯|嗯|知道了|明白|不客气|收到|好嘞|好呀|好哦|拜拜|再见|再会|保重|辛苦了|没事|没关系|不用谢|客气了/;
+    var ACK_PATTERN = /好的|谢谢|感谢|嗯嗯|嗯|知道了|明白|不客气|收到|好嘞|好呀|好哦|拜拜|再见|再会|保重|辛苦了|没事|没关系|不用谢|客气了|祝您健康/;
 
     nodes.forEach(function(node) {
-        // 向上查找整条消息
+        // 向上查找整条消息文本
         var bubble = node.parentElement;
         var depth = 0;
         var msgText = '';
@@ -363,11 +277,10 @@ function cleanShortAckDisclaimer() {
             depth++;
         }
 
-        // 判断是否为短回复（<120字）且包含问候/告别/确认用语
+        // 只对短回复（<120字）且包含问候/告别/确认用语去除免责
         if (msgText.length > 120 || !ACK_PATTERN.test(msgText)) return;
 
         var v = node.nodeValue;
-        // 各种免责声明变体
         v = v.replace(/[，,。.\s]*所有内容仅作居家养护参考[，,]不能替代线下医师诊断[、，,][^。！？\n]{0,120}[。.]?/g, '');
         v = v.replace(/[，,。.\s]*所有内容仅作居家养护参考[^。！？\n]{0,120}(?:遵医嘱|遵从线下|咨询主治)[^。！？\n]{0,60}[。.]?/g, '');
         v = v.replace(/[，,。.\s]*所有锻炼需缓慢发力[，,]身体不适立刻停止[，,]康复方案仅供参考[，,]遵从线下骨科医生指导[。.]?/g, '');
@@ -396,12 +309,10 @@ function startDisclaimerMonitor() {
         clearTimeout(timer);
         timer = setTimeout(function() {
             cleanShortAckDisclaimer();
-        }, 500);
+        }, 600);
     });
     monitorObserver.observe(chat, { childList: true, subtree: true, characterData: true });
-    // 流式输出完成后再清理一次
-    setTimeout(function() { cleanShortAckDisclaimer(); }, 2000);
-    setTimeout(function() { cleanShortAckDisclaimer(); }, 5000);
+    setTimeout(function() { cleanShortAckDisclaimer(); }, 3000);
 }
 
 // ===== 打开聊天 =====
@@ -414,13 +325,11 @@ function openChat() {
     document.getElementById('loadingOverlay').style.display = 'flex';
     document.getElementById('chatContainer').classList.add('chat-open');
 
-    welcomeInjected = false;
     clearChatCache();
     document.getElementById('chatContainer').innerHTML = '';
 
     var userId = 'u_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-    // 先加载 SDK 脚本
     function loadSDK(cb) {
         if (typeof CozeWebSDK !== 'undefined') { cb(); return; }
         var s = document.createElement('script');
@@ -435,7 +344,6 @@ function openChat() {
     }
 
     loadSDK(function() {
-        // 先创建全新会话，再初始化 SDK
         createNewConversation().then(function(convId) {
             initChat(userId, convId);
         });
@@ -455,7 +363,6 @@ function initChat(userId, conversationId) {
             bot_id: BOT_ID,
             isIframe: false
         };
-        // 如果成功创建了新会话，传入 conversation_id
         if (conversationId) {
             sdkConfig.conversation_id = conversationId;
         }
@@ -489,7 +396,6 @@ function initChat(userId, conversationId) {
                         document.getElementById('loadingOverlay').style.display = 'none';
                         initializing = false;
                         startDisclaimerMonitor();
-                        observeForWelcome();
                     },
                     onHide: function() {
                         closeChat();
@@ -501,25 +407,21 @@ function initChat(userId, conversationId) {
 
         cozeWebSDK.showChatBot();
 
-        // 兜底：尝试 SDK 的新会话方法
+        // 兜底：尝试 SDK 新会话方法
         setTimeout(function() {
             try {
                 if (cozeWebSDK) {
                     if (typeof cozeWebSDK.newConversation === 'function') {
                         cozeWebSDK.newConversation();
                     }
-                    if (typeof cozeWebSDK.clearChatHistory === 'function') {
-                        cozeWebSDK.clearChatHistory();
-                    }
                 }
             } catch(e) {}
-        }, 1500);
+        }, 2000);
 
         // 最终兜底
         setTimeout(function() {
             document.getElementById('loadingOverlay').style.display = 'none';
             initializing = false;
-            if (!welcomeInjected) tryInjectWelcome();
         }, 6000);
 
     } catch(e) {
@@ -532,9 +434,7 @@ function initChat(userId, conversationId) {
 // ===== 关闭聊天 =====
 function closeChat() {
     if (monitorObserver) { try { monitorObserver.disconnect(); } catch(e) {} monitorObserver = null; }
-    if (welcomeObserver) { try { welcomeObserver.disconnect(); } catch(e) {} welcomeObserver = null; }
     if (cozeWebSDK) { try { cozeWebSDK.destroy(); } catch(e) {} cozeWebSDK = null; }
-    welcomeInjected = false;
     initializing = false;
     document.getElementById('chatContainer').classList.remove('chat-open');
     document.getElementById('chatContainer').innerHTML = '';
@@ -545,11 +445,6 @@ function closeChat() {
 
 document.getElementById('btn').addEventListener('click', openChat);
 document.getElementById('closeBtn').addEventListener('click', closeChat);
-
-// 添加欢迎动画样式
-var st = document.createElement('style');
-st.textContent = '@keyframes welcomeFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}';
-document.head.appendChild(st);
 
 clearChatCache();
 </script>
