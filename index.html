@@ -119,7 +119,7 @@ body{
 }
 .close-btn:hover { background: #824fb8; }
 
-/* 只隐藏 video/audio 元素本身 */
+/* 隐藏 video/audio 元素 */
 #chatContainer video,
 #chatContainer audio {
     display: none !important;
@@ -193,49 +193,106 @@ var BOT_ID = '7673548882957516835';
 var cozeWebSDK = null;
 var monitorObserver = null;
 var initializing = false;
+var newConvTriggered = false;
 
-// ===== 清除本地缓存（不碰 IndexedDB，避免破坏 SDK 状态） =====
+// ===== 清除本地缓存 =====
 function clearChatCache() {
     try {
         var keys = Object.keys(localStorage);
         keys.forEach(function(key) {
-            localStorage.removeItem(key);
+            var kl = key.toLowerCase();
+            if (kl.indexOf('coze') > -1 || kl.indexOf('chat') > -1 ||
+                kl.indexOf('sdk') > -1 || kl.indexOf('conv') > -1 ||
+                kl.indexOf('message') > -1 || kl.indexOf('bot') > -1) {
+                localStorage.removeItem(key);
+            }
         });
         try { sessionStorage.clear(); } catch(e) {}
-        document.cookie.split(";").forEach(function(c) {
-            var eqPos = c.indexOf("=");
-            var name = eqPos > -1 ? c.substr(0, eqPos).trim() : c.trim();
-            document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
-        });
     } catch(e) {}
 }
 
-// ===== 通过 Coze API 创建全新会话 =====
-function createNewConversation() {
-    return new Promise(function(resolve) {
-        try {
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', 'https://api.coze.cn/v1/conversation/create', true);
-            xhr.setRequestHeader('Authorization', 'Bearer ' + PAT_TOKEN);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.timeout = 8000;
-            xhr.onload = function() {
-                try {
-                    var resp = JSON.parse(xhr.responseText);
-                    if (resp.data && resp.data.id) {
-                        resolve(resp.data.id);
-                    } else {
-                        resolve(null);
-                    }
-                } catch(e) { resolve(null); }
-            };
-            xhr.onerror = function() { resolve(null); };
-            xhr.ontimeout = function() { resolve(null); };
-            xhr.send(JSON.stringify({}));
-        } catch(e) {
-            resolve(null);
+// ===== 查找并点击"新建会话"按钮 =====
+function clickNewConversationButton() {
+    var chat = document.getElementById('chatContainer');
+    if (!chat) return false;
+
+    // 方法1: 查找所有可点击元素，匹配新会话相关的属性
+    var clickables = chat.querySelectorAll('button, [role="button"], [class*="new"], [class*="add"], [class*="create"]');
+    for (var i = 0; i < clickables.length; i++) {
+        var el = clickables[i];
+        var cls = (el.className || '').toString().toLowerCase();
+        var title = (el.getAttribute('title') || '').toLowerCase();
+        var aria = (el.getAttribute('aria-label') || '').toLowerCase();
+        var text = (el.textContent || '').trim().toLowerCase();
+
+        if (cls.indexOf('new-conv') > -1 || cls.indexOf('add-conv') > -1 ||
+            cls.indexOf('new-chat') > -1 || cls.indexOf('create-conv') > -1 ||
+            title.indexOf('新会话') > -1 || title.indexOf('新对话') > -1 ||
+            title.indexOf('new') > -1 || aria.indexOf('新会话') > -1 ||
+            aria.indexOf('新对话') > -1 || text.indexOf('新会话') > -1 ||
+            text.indexOf('新对话') > -1) {
+            try { el.click(); return true; } catch(e) {}
         }
-    });
+    }
+
+    // 方法2: 在 header 区域找按钮（新会话按钮通常在标题栏右侧）
+    var header = chat.querySelector('[class*="header"]');
+    if (header) {
+        var headerBtns = header.querySelectorAll('button, [role="button"], span[class*="icon"], div[class*="btn"]');
+        // 从右往左找，新会话按钮通常是最右侧的
+        for (var j = headerBtns.length - 1; j >= 0; j--) {
+            var hb = headerBtns[j];
+            var hCls = (hb.className || '').toString().toLowerCase();
+            // 排除关闭按钮
+            if (hCls.indexOf('close') > -1) continue;
+            // 找包含 + 号图标的按钮
+            var svg = hb.querySelector('svg');
+            if (svg || hb.offsetWidth < 50) {
+                try { hb.click(); return true; } catch(e) {}
+            }
+        }
+        // 如果只有一个按钮，点击它
+        if (headerBtns.length === 1) {
+            try { headerBtns[0].click(); return true; } catch(e) {}
+        }
+    }
+
+    // 方法3: 暴力找 header 中最后一个可点击的小元素
+    if (header) {
+        var allInHeader = header.querySelectorAll('*');
+        for (var k = allInHeader.length - 1; k >= 0; k--) {
+            var hel = allInHeader[k];
+            if (hel.offsetWidth > 0 && hel.offsetWidth < 60 && hel.offsetHeight < 60) {
+                var hcls = (hel.className || '').toString().toLowerCase();
+                if (hcls.indexOf('close') > -1 || hcls.indexOf('back') > -1) continue;
+                try { hel.click(); return true; } catch(e) {}
+            }
+        }
+    }
+
+    return false;
+}
+
+// ===== 自动触发新会话 =====
+function autoNewConversation() {
+    if (newConvTriggered) return;
+
+    // 先尝试 SDK 方法
+    try {
+        if (cozeWebSDK) {
+            if (typeof cozeWebSDK.newConversation === 'function') {
+                cozeWebSDK.newConversation();
+                newConvTriggered = true;
+                return;
+            }
+        }
+    } catch(e) {}
+
+    // 再尝试点击按钮
+    if (clickNewConversationButton()) {
+        newConvTriggered = true;
+        return;
+    }
 }
 
 // ===== 只对短问候/告别回复去除免责 =====
@@ -263,10 +320,9 @@ function cleanShortAckDisclaimer() {
     var n;
     while (n = walker.nextNode()) { nodes.push(n); }
 
-    var ACK_PATTERN = /好的|谢谢|感谢|嗯嗯|嗯|知道了|明白|不客气|收到|好嘞|好呀|好哦|拜拜|再见|再会|保重|辛苦了|没事|没关系|不用谢|客气了|祝您健康/;
+    var ACK_PATTERN = /好的|谢谢|感谢|嗯嗯|嗯|知道了|明白|不客气|收到|好嘞|好呀|好哦|拜拜|再见|再会|保重|辛苦了|没事|没关系|不用谢|客气了|祝您健康|爷爷.*再见|奶奶.*再见/;
 
     nodes.forEach(function(node) {
-        // 向上查找整条消息文本
         var bubble = node.parentElement;
         var depth = 0;
         var msgText = '';
@@ -277,7 +333,6 @@ function cleanShortAckDisclaimer() {
             depth++;
         }
 
-        // 只对短回复（<120字）且包含问候/告别/确认用语去除免责
         if (msgText.length > 120 || !ACK_PATTERN.test(msgText)) return;
 
         var v = node.nodeValue;
@@ -319,6 +374,7 @@ function startDisclaimerMonitor() {
 function openChat() {
     if (initializing) return;
     initializing = true;
+    newConvTriggered = false;
 
     document.getElementById('homePage').style.display = 'none';
     document.getElementById('closeBtn').style.display = 'block';
@@ -344,14 +400,12 @@ function openChat() {
     }
 
     loadSDK(function() {
-        createNewConversation().then(function(convId) {
-            initChat(userId, convId);
-        });
+        initChat(userId);
     });
 }
 
 // ===== 初始化聊天 =====
-function initChat(userId, conversationId) {
+function initChat(userId) {
     try {
         if (cozeWebSDK) {
             try { cozeWebSDK.destroy(); } catch(e) {}
@@ -359,16 +413,11 @@ function initChat(userId, conversationId) {
         }
         clearChatCache();
 
-        var sdkConfig = {
-            bot_id: BOT_ID,
-            isIframe: false
-        };
-        if (conversationId) {
-            sdkConfig.conversation_id = conversationId;
-        }
-
         cozeWebSDK = new CozeWebSDK.WebChatClient({
-            config: sdkConfig,
+            config: {
+                bot_id: BOT_ID,
+                isIframe: false
+            },
             auth: {
                 type: 'token',
                 token: PAT_TOKEN,
@@ -392,10 +441,18 @@ function initChat(userId, conversationId) {
                     el: document.getElementById('chatContainer'),
                     isNeedAudio: true,
                     isNeedFunctionCallMessage: true,
+                    isNeedAddNewConversation: true,
                     onShow: function() {
                         document.getElementById('loadingOverlay').style.display = 'none';
                         initializing = false;
                         startDisclaimerMonitor();
+
+                        // SDK 显示后，延迟自动点击"新建会话"
+                        // 多次尝试，确保按钮已渲染
+                        setTimeout(function() { autoNewConversation(); }, 800);
+                        setTimeout(function() { autoNewConversation(); }, 1500);
+                        setTimeout(function() { autoNewConversation(); }, 2500);
+                        setTimeout(function() { autoNewConversation(); }, 4000);
                     },
                     onHide: function() {
                         closeChat();
@@ -407,18 +464,7 @@ function initChat(userId, conversationId) {
 
         cozeWebSDK.showChatBot();
 
-        // 兜底：尝试 SDK 新会话方法
-        setTimeout(function() {
-            try {
-                if (cozeWebSDK) {
-                    if (typeof cozeWebSDK.newConversation === 'function') {
-                        cozeWebSDK.newConversation();
-                    }
-                }
-            } catch(e) {}
-        }, 2000);
-
-        // 最终兜底
+        // 兜底隐藏加载
         setTimeout(function() {
             document.getElementById('loadingOverlay').style.display = 'none';
             initializing = false;
@@ -436,6 +482,7 @@ function closeChat() {
     if (monitorObserver) { try { monitorObserver.disconnect(); } catch(e) {} monitorObserver = null; }
     if (cozeWebSDK) { try { cozeWebSDK.destroy(); } catch(e) {} cozeWebSDK = null; }
     initializing = false;
+    newConvTriggered = false;
     document.getElementById('chatContainer').classList.remove('chat-open');
     document.getElementById('chatContainer').innerHTML = '';
     document.getElementById('closeBtn').style.display = 'none';
