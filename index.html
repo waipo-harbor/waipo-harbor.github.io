@@ -92,15 +92,14 @@ body{
     max-width: 700px;
     height: 100%;
 }
-/* 强制聊天区内所有文字左对齐 */
+/* 强制聊天区文字左对齐 */
 #chatContainer,
 #chatContainer div,
 #chatContainer p,
 #chatContainer span,
 #chatContainer li,
 #chatContainer td,
-#chatContainer th,
-#chatContainer label {
+#chatContainer th {
     text-align: left !important;
 }
 
@@ -121,44 +120,10 @@ body{
 }
 .close-btn:hover { background: #824fb8; }
 
-/* 只隐藏原生 video/audio 元素，不隐藏卡片容器 */
+/* 只隐藏 video/audio 元素本身 */
 #chatContainer video,
 #chatContainer audio {
     display: none !important;
-}
-
-/* 欢迎消息气泡 */
-.welcome-msg {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 16px;
-    animation: fadeIn 0.3s ease;
-}
-.welcome-msg .avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #9966cc, #824fb8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    font-size: 18px;
-    flex-shrink: 0;
-}
-.welcome-msg .bubble {
-    background: #f4f0f9;
-    border-radius: 12px;
-    padding: 12px 16px;
-    max-width: 80%;
-    line-height: 1.6;
-    color: #333;
-    font-size: 15px;
-}
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
 }
 
 .loading-overlay {
@@ -226,171 +191,236 @@ body{
 <script>
 var cozeWebSDK = null;
 var welcomeInjected = false;
-var disclaimerObserver = null;
+var monitorObserver = null;
+var initializing = false;
 
-// ===== 彻底清缓存 =====
-function clearAllCache() {
+// ===== 清缓存（仅清聊天相关） =====
+function clearChatCache() {
     try {
         var keys = Object.keys(localStorage);
         keys.forEach(function(key) {
-            localStorage.removeItem(key);
+            var kl = key.toLowerCase();
+            if (kl.indexOf('coze') > -1 || kl.indexOf('chat') > -1 ||
+                kl.indexOf('sdk') > -1 || kl.indexOf('conversation') > -1 ||
+                kl.indexOf('message') > -1 || kl.indexOf('bot') > -1) {
+                localStorage.removeItem(key);
+            }
         });
         try { sessionStorage.clear(); } catch(e) {}
-        document.cookie.split(";").forEach(function(c) {
-            var eqPos = c.indexOf("=");
-            var name = eqPos > -1 ? c.substr(0, eqPos).trim() : c.trim();
-            document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
-        });
-        if (window.indexedDB && indexedDB.databases) {
-            indexedDB.databases().then(function(dbs) {
-                dbs.forEach(function(db) {
-                    if (db.name) indexedDB.deleteDatabase(db.name);
-                });
-            }).catch(function(){});
-        }
-        if (navigator.serviceWorker) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                registrations.forEach(function(r) { r.unregister(); });
-            }).catch(function(){});
-        }
     } catch(e) {}
 }
 
-// ===== 注入欢迎消息（不检测已有消息，直接注入） =====
+// ===== 查找 SDK 内部消息滚动容器 =====
+function findMessageArea() {
+    var chat = document.getElementById('chatContainer');
+    if (!chat) return null;
+
+    // 策略1：按类名关键词找
+    var patterns = ['message-list', 'msg-list', 'chat-content', 'message-container',
+                    'msg-container', 'chat-body', 'messages-wrapper', 'conversation-body',
+                    'chat-messages', 'msg-body'];
+    for (var i = 0; i < patterns.length; i++) {
+        var els = chat.querySelectorAll('[class*="' + patterns[i] + '"]');
+        for (var j = 0; j < els.length; j++) {
+            if (els[j].offsetHeight > 100 && els[j].offsetWidth > 100) {
+                return els[j];
+            }
+        }
+    }
+
+    // 策略2：找可滚动的大容器
+    var divs = chat.querySelectorAll('div');
+    for (var k = 0; k < divs.length; k++) {
+        var d = divs[k];
+        if (d.offsetHeight > 200 && d.offsetWidth > 200) {
+            var oy = getComputedStyle(d).overflowY;
+            if (oy === 'auto' || oy === 'scroll') {
+                return d;
+            }
+        }
+    }
+
+    // 策略3：找子元素最多的中等大小容器
+    var best = null;
+    var maxKids = 3;
+    for (var m = 0; m < divs.length; m++) {
+        var dd = divs[m];
+        if (dd.offsetHeight > 200 && dd.children.length > maxKids) {
+            maxKids = dd.children.length;
+            best = dd;
+        }
+    }
+    return best;
+}
+
+// ===== 检查 SDK 是否已显示真实消息 =====
+function hasRealBotMessage(container) {
+    if (!container) return false;
+    // 查找有实质文字内容的消息气泡
+    var candidates = container.querySelectorAll(
+        '[class*="bubble"], [class*="message-content"], [class*="msg-content"], [class*="text"]'
+    );
+    for (var i = 0; i < candidates.length; i++) {
+        var t = candidates[i].textContent.trim();
+        if (t.length > 5 && t.indexOf('正在') === -1 && t.indexOf('加载') === -1) {
+            return true;
+        }
+    }
+    // 兜底：如果容器内有超过2个子元素（头像+气泡等），认为有消息
+    if (container.children && container.children.length > 2) {
+        var allText = container.textContent.trim();
+        if (allText.length > 20) return true;
+    }
+    return false;
+}
+
+// ===== 注入欢迎消息到 SDK 消息区内部 =====
 function injectWelcomeMessage() {
     if (welcomeInjected) return;
 
-    var chat = document.getElementById('chatContainer');
-    if (!chat) return;
+    var msgArea = findMessageArea();
+    if (!msgArea) return; // SDK 还没渲染好，下次再试
+
+    // 如果 SDK 已经有真实消息了，不注入
+    if (hasRealBotMessage(msgArea)) {
+        welcomeInjected = true; // 标记完成，不再尝试
+        return;
+    }
+
+    // 如果已经注入过（DOM 还在），不重复
+    if (msgArea.querySelector('#welcomeMsg')) {
+        welcomeInjected = true;
+        return;
+    }
 
     welcomeInjected = true;
 
     var welcomeDiv = document.createElement('div');
     welcomeDiv.id = 'welcomeMsg';
-    welcomeDiv.className = 'welcome-msg';
+    welcomeDiv.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:16px;animation:welcomeFade 0.3s ease;';
     welcomeDiv.innerHTML =
-        '<div class="avatar">🏠</div>' +
-        '<div class="bubble">您好！我是外婆港湾居家养护助手，很高兴为您服务。请问我该怎么称呼您比较合适呢？叫爷爷还是奶奶呀？</div>';
+        '<div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9966cc,#824fb8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;flex-shrink:0;">🏠</div>' +
+        '<div style="background:#f4f0f9;border-radius:12px;padding:12px 16px;max-width:80%;line-height:1.6;color:#333;font-size:15px;">您好！我是外婆港湾居家养护助手，很高兴为您服务。请问我该怎么称呼您比较合适呢？叫爷爷还是奶奶呀？</div>';
 
-    // 插入到 chatContainer 最前面
-    chat.insertBefore(welcomeDiv, chat.firstChild);
+    msgArea.insertBefore(welcomeDiv, msgArea.firstChild);
+
+    // 添加动画样式（只加一次）
+    if (!document.getElementById('welcomeAnimStyle')) {
+        var st = document.createElement('style');
+        st.id = 'welcomeAnimStyle';
+        st.textContent = '@keyframes welcomeFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}';
+        document.head.appendChild(st);
+    }
 }
 
-// ===== 精确去除免责声明（不跨句子匹配） =====
-function removeDisclaimer() {
+// ===== 只对"好的/谢谢"等短回复去除免责，康复建议保留免责 =====
+function cleanShortAckDisclaimer() {
     var chat = document.getElementById('chatContainer');
     if (!chat) return;
 
     var walker = document.createTreeWalker(chat, NodeFilter.SHOW_TEXT, {
         acceptNode: function(node) {
-            // 跳过我们注入的欢迎消息
-            if (node.parentElement && node.parentElement.closest && node.parentElement.closest('.welcome-msg')) {
-                return NodeFilter.FILTER_REJECT;
-            }
-            // 跳过 script/style
-            var tag = node.parentElement ? node.parentElement.tagName : '';
+            if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+            var p = node.parentElement;
+            if (!p) return NodeFilter.FILTER_REJECT;
+            var tag = p.tagName;
             if (tag === 'SCRIPT' || tag === 'STYLE') return NodeFilter.FILTER_REJECT;
+            if (p.closest && p.closest('#welcomeMsg')) return NodeFilter.FILTER_REJECT;
             return NodeFilter.FILTER_ACCEPT;
         }
     }, false);
 
     var nodes = [];
-    var node;
-    while (node = walker.nextNode()) {
-        if (node.nodeValue && node.nodeValue.trim().length > 0) {
-            nodes.push(node);
+    var n;
+    while (n = walker.nextNode()) { nodes.push(n); }
+
+    nodes.forEach(function(node) {
+        var val = node.nodeValue;
+        if (val.indexOf('居家养护参考') === -1 &&
+            val.indexOf('康复方案仅供参考') === -1 &&
+            val.indexOf('不能替代医生') === -1 &&
+            val.indexOf('遵线下骨科') === -1 &&
+            val.indexOf('遵医嘱') === -1) {
+            return;
         }
-    }
 
-    nodes.forEach(function(n) {
-        var original = n.nodeValue;
-        var v = original;
-
-        // 1. 完整的"温馨提示：...免责内容..."（不跨句号/换行）
-        v = v.replace(/温馨提示[：:][^。！？\n]{0,200}?(?:康复方案仅供参考|遵从线下骨科医生指导|遵医嘱开展|身体不适立刻停止)[^。！？\n]{0,50}[。.]?/g, '');
-
-        // 2. "所有内容仅作居家养护参考...遵医嘱/遵从医生指导"（不跨句号/换行）
-        v = v.replace(/所有内容仅作居家养护参考[^。！？\n]{0,120}?(?:遵医嘱开展|遵从线下骨科医生指导)[^。！？\n]{0,30}[。.]?/g, '');
-
-        // 3. 独立的免责短句
-        v = v.replace(/康复方案仅供参考[，,]遵从线下骨科医生指导[。.]?/g, '');
-        v = v.replace(/所有锻炼需缓慢发力[，,]身体不适立刻停止[，,]康复方案仅供参考[，,]遵从线下骨科医生指导[。.]?/g, '');
-        v = v.replace(/不能替代医生[^\n。！？]{0,50}[。.]?/g, '');
-
-        // 4. 清理残留的空"温馨提示："标题（可能带序号前缀）
-        v = v.replace(/\s*\d+[.、]\s*温馨提示[：:]\s*$/g, '');
-        v = v.replace(/\s*温馨提示[：:]\s*$/g, '');
-
-        // 5. 清理末尾多余标点
-        v = v.replace(/[，,。.\s]+$/g, '');
-
-        if (v !== original) {
-            n.nodeValue = v;
-        }
-    });
-}
-
-// ===== 隐藏视频错误占位框（保守策略：只隐藏纯SVG无文字的小容器） =====
-function hideVideoErrors() {
-    var chat = document.getElementById('chatContainer');
-    if (!chat) return;
-
-    // 只处理 video 元素的错误
-    var videos = chat.querySelectorAll('video');
-    videos.forEach(function(vid) {
-        // 隐藏 video 本身及紧邻的错误提示
-        vid.style.setProperty('display', 'none', 'important');
-        // 如果 video 父容器只有 video 没有文字，隐藏父容器
-        var parent = vid.parentElement;
-        if (parent) {
-            // 检查父容器去除 video 后是否还有可见文字
-            var clone = parent.cloneNode(true);
-            var vidsInClone = clone.querySelectorAll('video, svg, img');
-            vidsInClone.forEach(function(el) { el.remove(); });
-            var remainingText = clone.textContent.trim();
-            if (remainingText.length < 5 && parent.getAttribute('data-video-hidden') !== '1') {
-                parent.style.setProperty('display', 'none', 'important');
-                parent.setAttribute('data-video-hidden', '1');
+        // 向上找最近的"消息行"祖先
+        var msgEl = node.parentElement;
+        var depth = 0;
+        while (msgEl && depth < 12) {
+            if (msgEl.parentElement === chat ||
+                (msgEl.parentElement && msgEl.parentElement.getAttribute &&
+                 msgEl.parentElement.getAttribute('id') === 'chatContainer')) {
+                break;
             }
+            // 检查是否是消息行：包含头像或有较大宽度
+            if (msgEl.offsetWidth > 200 && msgEl.children.length >= 1) {
+                var pt = msgEl.textContent.trim();
+                // 只对短回复（<100字）且包含确认用语的去除免责
+                if (pt.length < 100 &&
+                    /好的|谢谢|嗯嗯|知道了|不客气|收到|明白|感谢|好嘞|好呀/.test(pt)) {
+                    var v = val;
+                    v = v.replace(/[，,。.\s]*所有内容仅作居家养护参考[^。！？\n]{0,120}[。.]?/g, '');
+                    v = v.replace(/[，,。.\s]*所有锻炼需缓慢发力[，,]身体不适立刻停止[，,]康复方案仅供参考[，,]遵从线下骨科医生指导[。.]?/g, '');
+                    v = v.replace(/[，,。.\s]*康复方案仅供参考[，,]遵从线下骨科医生指导[。.]?/g, '');
+                    v = v.replace(/[，,。.\s]*不能替代医生[^\n。！？]{0,60}[。.]?/g, '');
+                    v = v.replace(/[，,。.\s]*温馨提示[：:][^。！？\n]{0,80}[。.]?/g, '');
+                    v = v.replace(/[，,。.\s]+$/g, '');
+                    if (v !== val) {
+                        node.nodeValue = v;
+                    }
+                    return;
+                }
+                break;
+            }
+            msgEl = msgEl.parentElement;
+            depth++;
         }
     });
 }
 
-// ===== 启动监控 =====
+// ===== 启动轻量监控 =====
 function startMonitor() {
     var chat = document.getElementById('chatContainer');
     if (!chat) return;
 
-    // 只监听文本变化做免责声明替换，不做任何 DOM 隐藏
-    if (disclaimerObserver) {
-        try { disclaimerObserver.disconnect(); } catch(e) {}
+    if (monitorObserver) {
+        try { monitorObserver.disconnect(); } catch(e) {}
     }
     var timer;
-    disclaimerObserver = new MutationObserver(function() {
+    monitorObserver = new MutationObserver(function() {
         clearTimeout(timer);
         timer = setTimeout(function() {
-            removeDisclaimer();
-            hideVideoErrors();
-        }, 500);
+            cleanShortAckDisclaimer();
+        }, 600);
     });
-    disclaimerObserver.observe(chat, { childList: true, subtree: true, characterData: true });
+    monitorObserver.observe(chat, { childList: true, subtree: true, characterData: true });
+}
 
-    // 3秒后再执行一次，确保流式输出完成后清理
-    setTimeout(function() {
-        removeDisclaimer();
-        hideVideoErrors();
-    }, 3000);
+// ===== 多次尝试注入欢迎语 =====
+function scheduleWelcomeInjection() {
+    var delays = [300, 800, 1500, 2500, 4000];
+    delays.forEach(function(d) {
+        setTimeout(function() {
+            if (!welcomeInjected) {
+                injectWelcomeMessage();
+            }
+        }, d);
+    });
 }
 
 // ===== 打开聊天 =====
 function openChat() {
+    if (initializing) return;
+    initializing = true;
+
     document.getElementById('homePage').style.display = 'none';
     document.getElementById('closeBtn').style.display = 'block';
     document.getElementById('loadingOverlay').style.display = 'flex';
     document.getElementById('chatContainer').classList.add('chat-open');
 
     welcomeInjected = false;
-    clearAllCache();
+    clearChatCache();
     document.getElementById('chatContainer').innerHTML = '';
 
     var userId = 'u_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -400,6 +430,7 @@ function openChat() {
         s.src = 'https://lf-cdn.coze.cn/obj/unpkg/flow-platform/chat-app-sdk/1.2.0-beta.20/libs/cn/index.js';
         s.onload = function() { initChat(userId); };
         s.onerror = function() {
+            initializing = false;
             document.getElementById('loadingOverlay').style.display = 'none';
             alert('加载失败，请检查网络后刷新');
         };
@@ -416,7 +447,7 @@ function initChat(userId) {
             try { cozeWebSDK.destroy(); } catch(e) {}
             cozeWebSDK = null;
         }
-        clearAllCache();
+        clearChatCache();
 
         cozeWebSDK = new CozeWebSDK.WebChatClient({
             config: {
@@ -450,9 +481,9 @@ function initChat(userId) {
                     isNeedFunctionCallMessage: true,
                     onShow: function() {
                         document.getElementById('loadingOverlay').style.display = 'none';
-                        // 立即注入欢迎消息
-                        injectWelcomeMessage();
+                        initializing = false;
                         startMonitor();
+                        scheduleWelcomeInjection();
                     },
                     onHide: function() {
                         closeChat();
@@ -464,22 +495,15 @@ function initChat(userId) {
 
         cozeWebSDK.showChatBot();
 
-        // 兜底：确保欢迎消息注入
-        setTimeout(function() { injectWelcomeMessage(); }, 500);
-        setTimeout(function() { injectWelcomeMessage(); }, 1500);
-        setTimeout(function() {
-            injectWelcomeMessage();
-            document.getElementById('loadingOverlay').style.display = 'none';
-            removeDisclaimer();
-            hideVideoErrors();
-        }, 3000);
-
-        // 5秒兜底隐藏加载
+        // 兜底
         setTimeout(function() {
             document.getElementById('loadingOverlay').style.display = 'none';
+            initializing = false;
+            if (!welcomeInjected) injectWelcomeMessage();
         }, 5000);
 
     } catch(e) {
+        initializing = false;
         document.getElementById('loadingOverlay').style.display = 'none';
         alert('初始化失败: ' + e.message);
     }
@@ -487,27 +511,27 @@ function initChat(userId) {
 
 // ===== 关闭聊天 =====
 function closeChat() {
+    if (monitorObserver) {
+        try { monitorObserver.disconnect(); } catch(e) {}
+        monitorObserver = null;
+    }
     if (cozeWebSDK) {
         try { cozeWebSDK.destroy(); } catch(e) {}
         cozeWebSDK = null;
     }
-    if (disclaimerObserver) {
-        try { disclaimerObserver.disconnect(); } catch(e) {}
-        disclaimerObserver = null;
-    }
     welcomeInjected = false;
+    initializing = false;
     document.getElementById('chatContainer').classList.remove('chat-open');
     document.getElementById('chatContainer').innerHTML = '';
     document.getElementById('closeBtn').style.display = 'none';
     document.getElementById('homePage').style.display = '';
-    clearAllCache();
+    clearChatCache();
 }
 
 document.getElementById('btn').addEventListener('click', openChat);
 document.getElementById('closeBtn').addEventListener('click', closeChat);
 
-// 页面加载时清缓存
-clearAllCache();
+clearChatCache();
 </script>
 </body>
 </html>
