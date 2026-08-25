@@ -158,6 +158,47 @@ body{
     font-size: 18px;
     color: #9966cc;
 }
+
+/* ===== 微信浏览器提示遮罩 ===== */
+#wechatTip {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 999999;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 60px;
+}
+#wechatTip.show { display: flex; }
+.wechat-tip-box {
+    text-align: center;
+    color: #fff;
+    width: 90%;
+    max-width: 400px;
+}
+.wechat-tip-arrow {
+    font-size: 60px;
+    margin-bottom: 16px;
+    animation: bounce 1.2s infinite;
+}
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-12px); }
+}
+.wechat-tip-title {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 16px;
+}
+.wechat-tip-desc {
+    font-size: 16px;
+    line-height: 1.8;
+    opacity: 0.9;
+}
+.wechat-tip-desc b {
+    color: #ffd700;
+}
 </style>
 </head>
 <body>
@@ -170,6 +211,19 @@ body{
 </div>
 
 <div id="chatContainer"></div>
+
+<div id="wechatTip">
+<div class="wechat-tip-box">
+<div class="wechat-tip-arrow">👆</div>
+<div class="wechat-tip-title">请用浏览器打开</div>
+<div class="wechat-tip-desc">
+点击右上角 <b>···</b> 菜单<br>
+选择 <b>"在浏览器中打开"</b><br>
+或 <b>"在Safari中打开"</b><br><br>
+即可正常使用养护助手
+</div>
+</div>
+</div>
 
 <div id="homePage">
 <div class="logo">
@@ -559,6 +613,15 @@ function closeChat() {
 
 document.getElementById('btn').addEventListener('click', openChat);
 document.getElementById('closeBtn').addEventListener('click', closeChat);
+
+// ===== 微信浏览器检测 =====
+function isWeChatBrowser() {
+    var ua = navigator.userAgent.toLowerCase();
+    return ua.indexOf('micromessenger') > -1;
+}
+if (isWeChatBrowser()) {
+    document.getElementById('wechatTip').classList.add('show');
+}
 
 clearChatCache();
 </script>
