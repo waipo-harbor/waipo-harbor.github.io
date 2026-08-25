@@ -73,6 +73,8 @@ body{
     background:#824fb8;
     box-shadow: 0 6px 16px rgba(153, 102, 204, 0.45);
 }
+
+/* ===== 聊天容器：全屏覆盖，内容居中 ===== */
 #chatContainer {
     display: none;
     position: fixed;
@@ -81,8 +83,17 @@ body{
     background: #fff;
 }
 #chatContainer.chat-open {
-    display: block;
+    display: flex;
+    justify-content: center;
 }
+/* SDK 内部元素全部居中限制宽度 */
+#chatContainer > div,
+#chatContainer > div > div {
+    max-width: 700px !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+}
+
 .close-btn {
     display: none;
     position: fixed;
@@ -100,9 +111,26 @@ body{
 }
 .close-btn:hover { background: #824fb8; }
 
-/* 仅隐藏原生 video/audio 播放器，不碰任何其他元素 */
+/* ===== 隐藏视频/音频原生元素 ===== */
 #chatContainer video,
 #chatContainer audio {
+    display: none !important;
+}
+
+/* ===== 隐藏媒体卡片中的缩略图/封面区域（视频白框） ===== */
+/* 只针对消息内容区内的卡片类元素，不碰输入框和按钮 */
+#chatContainer [class*="card"] [class*="cover"],
+#chatContainer [class*="card"] [class*="thumb"],
+#chatContainer [class*="card"] [class*="media"],
+#chatContainer [class*="Card"] [class*="Cover"],
+#chatContainer [class*="Card"] [class*="Thumb"],
+#chatContainer [class*="Card"] [class*="Media"],
+#chatContainer [class*="rich"] [class*="cover"],
+#chatContainer [class*="rich"] [class*="thumb"],
+#chatContainer [class*="Rich"] [class*="Cover"],
+#chatContainer [class*="Rich"] [class*="Thumb"],
+#chatContainer [class*="embed"],
+#chatContainer [class*="Embed"] {
     display: none !important;
 }
 
@@ -172,25 +200,161 @@ body{
 <script>
 var cozeWebSDK = null;
 
-function clearCache() {
+// ===== 彻底清除所有缓存 =====
+function clearAllCache() {
     try {
+        // localStorage
         var keys = Object.keys(localStorage);
         keys.forEach(function(key) {
-            if (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1) {
+            if (key.indexOf('coze') !== -1 || key.indexOf('chat') !== -1 || key.indexOf('sdk') !== -1 || key.indexOf('7673548882957516835') !== -1) {
                 localStorage.removeItem(key);
             }
         });
-        sessionStorage.clear();
+        // sessionStorage
+        try { sessionStorage.clear(); } catch(e) {}
+        // cookies
+        document.cookie.split(";").forEach(function(c) {
+            if (c.indexOf('coze') !== -1 || c.indexOf('chat') !== -1) {
+                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date(0).toUTCString() + ";path=/");
+            }
+        });
+        // IndexedDB
+        if (window.indexedDB && indexedDB.databases) {
+            indexedDB.databases().then(function(dbs) {
+                dbs.forEach(function(db) {
+                    if (db.name && (db.name.indexOf('coze') !== -1 || db.name.indexOf('chat') !== -1 || db.name.indexOf('sdk') !== -1)) {
+                        indexedDB.deleteDatabase(db.name);
+                    }
+                });
+            }).catch(function(){});
+        }
     } catch(e) {}
 }
 
+// ===== 安全地隐藏视频白框（只设置display:none，不删除元素） =====
+function hideBrokenMediaCards() {
+    var chat = document.getElementById('chatContainer');
+    if (!chat) return;
+
+    // 查找所有可能是视频/媒体卡片的div
+    // 特征：圆角 + 有SVG图标 + 无文字 + 有一定尺寸
+    var divs = chat.querySelectorAll('div');
+    for (var i = 0; i < divs.length; i++) {
+        var div = divs[i];
+
+        // 跳过已处理的
+        if (div.getAttribute('data-media-hidden') === '1') continue;
+
+        // 跳过输入框、按钮等交互区域
+        if (div.closest('input, textarea, [contenteditable="true"], button, [class*="input"], [class*="footer"], [class*="compose"], [class*="send"], [class*="btn"]')) continue;
+
+        // 必须有SVG子元素（感叹号图标）
+        var svg = div.querySelector('svg');
+        if (!svg) continue;
+
+        // 文本内容必须极少（白框里没有文字）
+        var text = div.textContent.trim();
+        if (text.length > 3) continue;
+
+        // 尺寸必须够大（视频框通常>150px宽, >80px高）
+        if (div.offsetWidth < 120 || div.offsetHeight < 60) continue;
+
+        // 检查是否有圆角（卡片特征）
+        var style = window.getComputedStyle(div);
+        var br = style.borderRadius;
+        if (!br || br === '0px') continue;
+
+        // 检查背景是否为白色或浅色
+        var bg = style.backgroundColor || '';
+        var isLightBg = bg.indexOf('255') > -1 || bg.indexOf('248') > -1 || bg.indexOf('245') > -1 || bg.indexOf('240') > -1 || bg === '' || bg === 'transparent';
+        if (!isLightBg) continue;
+
+        // 所有条件匹配，隐藏它
+        div.style.setProperty('display', 'none', 'important');
+        div.setAttribute('data-media-hidden', '1');
+    }
+}
+
+// ===== 去除日常用语回复中的免责声明 =====
+function stripDisclaimer() {
+    var chat = document.getElementById('chatContainer');
+    if (!chat) return;
+
+    // 需要去除的免责声明文本模式
+    var patterns = [
+        /所有内容仅作居家养护参考[，,。.].*?遵医嘱开展[。.]?/g,
+        /所有内容仅作居家养护参考[，,。.].*?主治医生[，,].*?遵医嘱开展[。.]?/g,
+        /以上内容仅供参考[，,。.].*?遵医嘱[。.]?/g,
+        /温馨提示[：:].*?不能替代.*?医生[。.]?/g
+    ];
+
+    // 遍历所有文本节点
+    var walker = document.createTreeWalker(chat, NodeFilter.SHOW_TEXT, null, false);
+    var nodesToProcess = [];
+    var node;
+    while (node = walker.nextNode()) {
+        var text = node.nodeValue;
+        if (text && text.indexOf('居家养护参考') > -1) {
+            nodesToProcess.push(node);
+        }
+    }
+
+    nodesToProcess.forEach(function(textNode) {
+        var original = textNode.nodeValue;
+        var modified = original;
+        patterns.forEach(function(pattern) {
+            modified = modified.replace(pattern, '');
+        });
+        // 清理末尾多余的标点和空格
+        modified = modified.replace(/[，,。.\s]+$/, '');
+        if (modified !== original) {
+            textNode.nodeValue = modified;
+        }
+    });
+}
+
+// ===== 启动安全的DOM监控（只隐藏不删除） =====
+function startSafeObserver() {
+    var chat = document.getElementById('chatContainer');
+    if (!chat) return;
+
+    var timer = null;
+    var observer = new MutationObserver(function() {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function() {
+            hideBrokenMediaCards();
+            stripDisclaimer();
+        }, 300);
+    });
+
+    observer.observe(chat, {
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
+
+    // 定期检查
+    setInterval(function() {
+        hideBrokenMediaCards();
+        stripDisclaimer();
+    }, 2000);
+}
+
+// ===== 打开聊天 =====
 function openChat() {
     document.getElementById('homePage').style.display = 'none';
     document.getElementById('closeBtn').style.display = 'block';
     document.getElementById('loadingOverlay').style.display = 'flex';
     document.getElementById('chatContainer').classList.add('chat-open');
 
-    // 每次打开都用新用户ID，确保触发欢迎语
+    // 彻底清缓存
+    clearAllCache();
+
+    // 清空chatContainer
+    var container = document.getElementById('chatContainer');
+    container.innerHTML = '';
+
+    // 每次都用全新用户ID
     var userId = 'u_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
     if (typeof CozeWebSDK === 'undefined') {
@@ -207,15 +371,18 @@ function openChat() {
     }
 }
 
+// ===== 初始化聊天 =====
 function initChat(userId) {
     try {
-        clearCache();
-
+        // 销毁旧实例
         if (cozeWebSDK) {
             try { cozeWebSDK.destroy(); } catch(e) {}
             try { cozeWebSDK.close(); } catch(e) {}
             cozeWebSDK = null;
         }
+
+        // 再清一次
+        clearAllCache();
 
         cozeWebSDK = new CozeWebSDK.WebChatClient({
             config: {
@@ -249,6 +416,7 @@ function initChat(userId) {
                     isNeedFunctionCallMessage: false,
                     onShow: function() {
                         document.getElementById('loadingOverlay').style.display = 'none';
+                        startSafeObserver();
                     },
                     onHide: function() {
                         closeChat();
@@ -258,35 +426,50 @@ function initChat(userId) {
             }
         });
 
-        // 显示聊天界面
+        // 显示聊天
         cozeWebSDK.showChatBot();
 
-        // 兜底：5秒后强制隐藏加载动画
+        // 尝试开启新会话
+        setTimeout(function() {
+            try {
+                if (cozeWebSDK && typeof cozeWebSDK.newConversation === 'function') {
+                    cozeWebSDK.newConversation();
+                }
+                if (cozeWebSDK && typeof cozeWebSDK.clearChatHistory === 'function') {
+                    cozeWebSDK.clearChatHistory();
+                }
+            } catch(e) {}
+        }, 1000);
+
+        // 兜底：5秒后隐藏加载
         setTimeout(function() {
             document.getElementById('loadingOverlay').style.display = 'none';
         }, 5000);
+
     } catch(e) {
         document.getElementById('loadingOverlay').style.display = 'none';
         alert('初始化失败: ' + e.message);
     }
 }
 
+// ===== 关闭聊天 =====
 function closeChat() {
-    document.getElementById('chatContainer').classList.remove('chat-open');
-    document.getElementById('closeBtn').style.display = 'none';
-    document.getElementById('homePage').style.display = '';
-    clearCache();
     if (cozeWebSDK) {
         try { cozeWebSDK.destroy(); } catch(e) {}
         cozeWebSDK = null;
     }
+    document.getElementById('chatContainer').classList.remove('chat-open');
+    document.getElementById('chatContainer').innerHTML = '';
+    document.getElementById('closeBtn').style.display = 'none';
+    document.getElementById('homePage').style.display = '';
+    clearAllCache();
 }
 
 document.getElementById('btn').addEventListener('click', openChat);
 document.getElementById('closeBtn').addEventListener('click', closeChat);
 
-// 页面加载时清一次缓存，不自动打开聊天
-clearCache();
+// 页面加载时清缓存
+clearAllCache();
 </script>
 </body>
 </html>
