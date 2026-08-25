@@ -125,6 +125,16 @@ body{
     display: none !important;
 }
 
+/* 隐藏知识库检索调试信息（recall slice 等 function call 原始消息） */
+#chatContainer [class*="function-call"],
+#chatContainer [class*="functionCall"],
+#chatContainer [class*="tool-result"],
+#chatContainer [class*="tool_result"],
+#chatContainer [class*="plugin-msg"],
+#chatContainer [class*="recall"] {
+    display: none !important;
+}
+
 .loading-overlay {
     display: none;
     position: fixed;
@@ -352,6 +362,62 @@ function cleanShortAckDisclaimer() {
     });
 }
 
+// ===== 隐藏知识库调试信息（recall slice 等） =====
+function hideDebugMessages() {
+    var chat = document.getElementById('chatContainer');
+    if (!chat) return;
+    // 查找包含 "recall slice" 文本的元素，向上找到整条消息气泡并隐藏
+    var walker = document.createTreeWalker(chat, NodeFilter.SHOW_TEXT, {
+        acceptNode: function(node) {
+            if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+            var v = node.nodeValue.toLowerCase();
+            if (v.indexOf('recall slice') > -1 || v.indexOf('recall_slice') > -1) {
+                return NodeFilter.FILTER_ACCEPT;
+            }
+            return NodeFilter.FILTER_REJECT;
+        }
+    }, false);
+    var nodes = [];
+    var n;
+    while (n = walker.nextNode()) { nodes.push(n); }
+    nodes.forEach(function(node) {
+        var el = node.parentElement;
+        var depth = 0;
+        // 向上找消息气泡容器（通常是带背景色的 div）
+        while (el && el !== chat && depth < 20) {
+            var tag = el.tagName;
+            var cls = (el.className || '').toString().toLowerCase();
+            // 常见消息容器类名特征
+            if (cls.indexOf('message') > -1 || cls.indexOf('bubble') > -1 ||
+                cls.indexOf('msg-item') > -1 || cls.indexOf('chat-item') > -1 ||
+                cls.indexOf('answer') > -1 || cls.indexOf('response') > -1 ||
+                (tag === 'DIV' && el.querySelector('div') && el.offsetWidth > 100)) {
+                // 找到一个可能的消息容器，检查它是否包含大部分 recall 文本
+                var text = el.textContent || '';
+                if (text.toLowerCase().indexOf('recall slice') > -1 && text.length < 3000) {
+                    el.style.display = 'none';
+                    return;
+                }
+            }
+            el = el.parentElement;
+            depth++;
+        }
+        // 如果没找到容器，直接隐藏父元素
+        if (node.parentElement) {
+            var p = node.parentElement;
+            var d2 = 0;
+            while (p && d2 < 5) {
+                if (p.textContent && p.textContent.toLowerCase().indexOf('recall slice') > -1) {
+                    p.style.display = 'none';
+                    return;
+                }
+                p = p.parentElement;
+                d2++;
+            }
+        }
+    });
+}
+
 // ===== 启动免责清理监控 =====
 function startDisclaimerMonitor() {
     if (monitorObserver) {
@@ -364,10 +430,11 @@ function startDisclaimerMonitor() {
         clearTimeout(timer);
         timer = setTimeout(function() {
             cleanShortAckDisclaimer();
+            hideDebugMessages();
         }, 600);
     });
     monitorObserver.observe(chat, { childList: true, subtree: true, characterData: true });
-    setTimeout(function() { cleanShortAckDisclaimer(); }, 3000);
+    setTimeout(function() { cleanShortAckDisclaimer(); hideDebugMessages(); }, 3000);
 }
 
 // ===== 打开聊天 =====
@@ -440,7 +507,7 @@ function initChat(userId) {
                     title: '外婆港湾居家养护助手',
                     el: document.getElementById('chatContainer'),
                     isNeedAudio: true,
-                    isNeedFunctionCallMessage: true,
+                    isNeedFunctionCallMessage: false,
                     isNeedAddNewConversation: true,
                     onShow: function() {
                         document.getElementById('loadingOverlay').style.display = 'none';
